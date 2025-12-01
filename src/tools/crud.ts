@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
-import { getDb } from '../storage/db';
-import { logAudit } from '../audit';
-import { loadConfig } from '../config';
+import { getDb } from '../storage/db.js';
+import { logAudit } from '../audit.js';
+import { loadConfig } from '../config.js';
 
 const config = loadConfig();
 
@@ -163,7 +163,7 @@ export async function handleCrudQuery(args: { collection: string; filter?: any; 
             args.collection, limit * 5
         );
 
-        let results = rows.map(row => ({
+        let results = rows.map((row: any) => ({
             id: row.id,
             ...JSON.parse(row.data)
         }));
@@ -172,7 +172,7 @@ export async function handleCrudQuery(args: { collection: string; filter?: any; 
             // Parse filter if it's a string
             const parsedFilter = typeof args.filter === 'string' ? JSON.parse(args.filter) : args.filter;
 
-            results = results.filter(item => {
+            results = results.filter((item: any) => {
                 return Object.entries(parsedFilter as Record<string, any>).every(([key, value]) => {
                     return item[key] === value;
                 });

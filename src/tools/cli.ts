@@ -2,8 +2,8 @@ import { z } from 'zod';
 import { exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import { loadConfig } from '../config';
-import { logAudit } from '../audit';
+import { loadConfig } from '../config.js';
+import { logAudit } from '../audit.js';
 
 const config = loadConfig();
 

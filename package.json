@@ -1,6 +1,7 @@
 {
     "name": "mcp-crud-cli",
     "version": "1.0.0",
+    "type": "module",
     "description": "MCP server for CLI and CRUD operations in YOLO mode - provides unrestricted CLI access and flexible CRUD operations backed by SQLite",
     "main": "dist/index.js",
     "bin": {

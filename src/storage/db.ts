@@ -2,7 +2,7 @@ import sqlite3 from 'sqlite3';
 import { open, Database } from 'sqlite';
 import fs from 'fs';
 import path from 'path';
-import { loadConfig, expandHome } from '../config';
+import { loadConfig, expandHome } from '../config.js';
 
 let dbInstance: Database | null = null;
 

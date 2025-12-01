@@ -1,4 +1,4 @@
-import { getDb } from './storage/db';
+import { getDb } from './storage/db.js';
 
 export async function logAudit(tool: string, args: any, result: any, error?: any) {
     try {

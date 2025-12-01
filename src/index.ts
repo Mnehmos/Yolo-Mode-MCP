@@ -14,7 +14,7 @@ import {
     WriteFileSchema,
     handleListDirectory,
     ListDirectorySchema
-} from './tools/cli';
+} from './tools/cli.js';
 import {
     handleCrudCreate,
     CrudCreateSchema,
@@ -26,7 +26,7 @@ import {
     CrudDeleteSchema,
     handleCrudQuery,
     CrudQuerySchema
-} from './tools/crud';
+} from './tools/crud.js';
 
 const server = new Server(
     {
@@ -162,7 +162,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
     try {
         // Initialize database
-        const { getDb } = await import('./storage/db');
+        const { getDb } = await import('./storage/db.js');
         await getDb();
 
         const transport = new StdioServerTransport();
