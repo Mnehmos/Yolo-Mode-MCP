@@ -1,0 +1,51 @@
+{
+    "name": "mcp-crud-cli",
+    "version": "1.0.0",
+    "description": "MCP server for CLI and CRUD operations in YOLO mode - provides unrestricted CLI access and flexible CRUD operations backed by SQLite",
+    "main": "dist/index.js",
+    "bin": {
+        "mcp-crud-cli": "dist/index.js"
+    },
+    "scripts": {
+        "build": "tsc",
+        "start": "node dist/index.js",
+        "dev": "tsc --watch",
+        "prepare": "npm run build"
+    },
+    "keywords": [
+        "mcp",
+        "claude",
+        "cli",
+        "crud",
+        "sqlite",
+        "model-context-protocol",
+        "ai",
+        "llm"
+    ],
+    "author": "Vario",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/yourusername/mcp-crud-cli.git"
+    },
+    "bugs": {
+        "url": "https://github.com/yourusername/mcp-crud-cli/issues"
+    },
+    "homepage": "https://github.com/yourusername/mcp-crud-cli#readme",
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^0.6.0",
+        "sqlite": "^5.0.1",
+        "sqlite3": "^5.1.6",
+        "uuid": "^13.0.0",
+        "zod": "^3.22.0"
+    },
+    "devDependencies": {
+        "@types/node": "^20.0.0",
+        "@types/sqlite3": "^3.1.8",
+        "@types/uuid": "^10.0.0",
+        "typescript": "^5.0.0"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    }
+}
