@@ -33,6 +33,36 @@ export const CrudQuerySchema = {
     limit: z.number().optional(),
 };
 
+// Batch operation schemas for parallel execution
+export const CrudBatchCreateSchema = {
+    operations: z.array(z.object({
+        collection: z.string(),
+        data: z.any(),
+    })).describe('Array of create operations to execute in parallel'),
+};
+
+export const CrudBatchReadSchema = {
+    operations: z.array(z.object({
+        collection: z.string(),
+        id: z.string(),
+    })).describe('Array of read operations to execute in parallel'),
+};
+
+export const CrudBatchUpdateSchema = {
+    operations: z.array(z.object({
+        collection: z.string(),
+        id: z.string(),
+        data: z.any(),
+    })).describe('Array of update operations to execute in parallel'),
+};
+
+export const CrudBatchDeleteSchema = {
+    operations: z.array(z.object({
+        collection: z.string(),
+        id: z.string(),
+    })).describe('Array of delete operations to execute in parallel'),
+};
+
 export async function handleCrudCreate(args: { collection: string; data: any }) {
     try {
         const id = uuidv4();
@@ -194,4 +224,186 @@ export async function handleCrudQuery(args: { collection: string; filter?: any; 
             isError: true,
         };
     }
+}
+
+// Batch handlers for parallel execution
+interface BatchResult {
+    index: number;
+    success: boolean;
+    result?: any;
+    error?: string;
+}
+
+export async function handleCrudBatchCreate(args: { operations: Array<{ collection: string; data: any }> }) {
+    const startTime = Date.now();
+
+    const results = await Promise.all(
+        args.operations.map(async (op, index): Promise<BatchResult> => {
+            try {
+                const id = uuidv4();
+                const db = await getDb();
+                const parsedData = typeof op.data === 'string' ? JSON.parse(op.data) : op.data;
+
+                await db.run(
+                    `INSERT INTO kv_store (collection, id, data) VALUES (?, ?, ?)`,
+                    op.collection, id, JSON.stringify(parsedData)
+                );
+
+                return { index, success: true, result: { id, ...parsedData } };
+            } catch (error: any) {
+                return { index, success: false, error: error.message };
+            }
+        })
+    );
+
+    const successful = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+    const elapsed = Date.now() - startTime;
+
+    await logAudit('crud_batch_create', { count: args.operations.length }, { successful, failed, elapsed });
+
+    return {
+        content: [{
+            type: 'text',
+            text: JSON.stringify({
+                summary: { total: args.operations.length, successful, failed, elapsed_ms: elapsed },
+                results: results.sort((a, b) => a.index - b.index)
+            }, null, 2)
+        }],
+        isError: failed > 0,
+    };
+}
+
+export async function handleCrudBatchRead(args: { operations: Array<{ collection: string; id: string }> }) {
+    const startTime = Date.now();
+
+    const results = await Promise.all(
+        args.operations.map(async (op, index): Promise<BatchResult> => {
+            try {
+                const db = await getDb();
+                const row = await db.get(
+                    `SELECT data FROM kv_store WHERE collection = ? AND id = ?`,
+                    op.collection, op.id
+                );
+
+                if (!row) {
+                    return { index, success: false, error: `Record not found: ${op.collection}/${op.id}` };
+                }
+
+                const data = JSON.parse(row.data);
+                return { index, success: true, result: { id: op.id, collection: op.collection, ...data } };
+            } catch (error: any) {
+                return { index, success: false, error: error.message };
+            }
+        })
+    );
+
+    const successful = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+    const elapsed = Date.now() - startTime;
+
+    await logAudit('crud_batch_read', { count: args.operations.length }, { successful, failed, elapsed });
+
+    return {
+        content: [{
+            type: 'text',
+            text: JSON.stringify({
+                summary: { total: args.operations.length, successful, failed, elapsed_ms: elapsed },
+                results: results.sort((a, b) => a.index - b.index)
+            }, null, 2)
+        }],
+        isError: failed > 0 && successful === 0,
+    };
+}
+
+export async function handleCrudBatchUpdate(args: { operations: Array<{ collection: string; id: string; data: any }> }) {
+    const startTime = Date.now();
+
+    const results = await Promise.all(
+        args.operations.map(async (op, index): Promise<BatchResult> => {
+            try {
+                const db = await getDb();
+                const parsedData = typeof op.data === 'string' ? JSON.parse(op.data) : op.data;
+
+                const row = await db.get(
+                    `SELECT data FROM kv_store WHERE collection = ? AND id = ?`,
+                    op.collection, op.id
+                );
+
+                if (!row) {
+                    return { index, success: false, error: `Record not found: ${op.collection}/${op.id}` };
+                }
+
+                const existingData = JSON.parse(row.data);
+                const newData = { ...existingData, ...parsedData };
+
+                await db.run(
+                    `UPDATE kv_store SET data = ?, updated_at = CURRENT_TIMESTAMP WHERE collection = ? AND id = ?`,
+                    JSON.stringify(newData), op.collection, op.id
+                );
+
+                return { index, success: true, result: { id: op.id, collection: op.collection, ...newData } };
+            } catch (error: any) {
+                return { index, success: false, error: error.message };
+            }
+        })
+    );
+
+    const successful = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+    const elapsed = Date.now() - startTime;
+
+    await logAudit('crud_batch_update', { count: args.operations.length }, { successful, failed, elapsed });
+
+    return {
+        content: [{
+            type: 'text',
+            text: JSON.stringify({
+                summary: { total: args.operations.length, successful, failed, elapsed_ms: elapsed },
+                results: results.sort((a, b) => a.index - b.index)
+            }, null, 2)
+        }],
+        isError: failed > 0 && successful === 0,
+    };
+}
+
+export async function handleCrudBatchDelete(args: { operations: Array<{ collection: string; id: string }> }) {
+    const startTime = Date.now();
+
+    const results = await Promise.all(
+        args.operations.map(async (op, index): Promise<BatchResult> => {
+            try {
+                const db = await getDb();
+                const result = await db.run(
+                    `DELETE FROM kv_store WHERE collection = ? AND id = ?`,
+                    op.collection, op.id
+                );
+
+                if (!result.changes || result.changes === 0) {
+                    return { index, success: false, error: `Record not found: ${op.collection}/${op.id}` };
+                }
+
+                return { index, success: true, result: { id: op.id, collection: op.collection, deleted: true } };
+            } catch (error: any) {
+                return { index, success: false, error: error.message };
+            }
+        })
+    );
+
+    const successful = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+    const elapsed = Date.now() - startTime;
+
+    await logAudit('crud_batch_delete', { count: args.operations.length }, { successful, failed, elapsed });
+
+    return {
+        content: [{
+            type: 'text',
+            text: JSON.stringify({
+                summary: { total: args.operations.length, successful, failed, elapsed_ms: elapsed },
+                results: results.sort((a, b) => a.index - b.index)
+            }, null, 2)
+        }],
+        isError: failed > 0 && successful === 0,
+    };
 }
