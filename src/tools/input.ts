@@ -127,7 +127,7 @@ async function pressKey(key: string, modifiers: string[] = []): Promise<void> {
         if (modifiers.includes('alt')) modStr += 'option down, ';
         if (modifiers.includes('shift')) modStr += 'shift down, ';
 
-        const keyCode = key.length === 1 ? `"${key}"` : `key code ${getmacKeyCode(key)}`;
+        const keyCode = key.length === 1 ? `"${key}"` : `key code ${getMacKeyCode(key)}`;
         await execAsync(`osascript -e 'tell application "System Events" to key code ${keyCode} using {${modStr.slice(0, -2)}}'`, { timeout: 5000 });
     } else {
         const modStr = modifiers.map(m => m === 'ctrl' ? 'ctrl' : m === 'alt' ? 'alt' : m === 'shift' ? 'shift' : 'super').join('+');
@@ -136,7 +136,7 @@ async function pressKey(key: string, modifiers: string[] = []): Promise<void> {
     }
 }
 
-function getmacKeyCode(key: string): number {
+function getMacKeyCode(key: string): number {
     const codes: Record<string, number> = {
         'enter': 36, 'return': 36, 'tab': 48, 'space': 49, 'delete': 51,
         'escape': 53, 'esc': 53, 'up': 126, 'down': 125, 'left': 123, 'right': 124,
@@ -529,7 +529,15 @@ export async function handleBatchMouseActions(args: { actions: any[] }) {
                     results.push({ index: i, success: true, action: 'drag' });
                     break;
                 case 'scroll':
-                    // Simplified scroll
+                    if (platform === 'win32') {
+                        const scrollAmt = (action.deltaY || 0) * -120;
+                        const scrollScript = `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class M { [DllImport("user32.dll")] public static extern void mouse_event(int f, int x, int y, int d, int e); }'; [M]::mouse_event(0x0800, 0, 0, ${scrollAmt}, 0)`;
+                        await execAsync(`powershell -Command "${scrollScript}"`, { timeout: 5000 });
+                    } else if (platform !== 'darwin') {
+                        const direction = (action.deltaY || 0) > 0 ? 5 : 4;
+                        const times = Math.abs(action.deltaY || 1);
+                        await execAsync(`xdotool click --repeat ${times} ${direction}`, { timeout: 5000 });
+                    }
                     results.push({ index: i, success: true, action: 'scroll' });
                     break;
                 case 'wait':

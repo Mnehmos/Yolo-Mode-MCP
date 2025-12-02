@@ -1,11 +1,11 @@
-# Contributing to MCP CRUD/CLI Server
+# Contributing to MCP OODA Computer
 
 Thank you for your interest in contributing! This document provides guidelines for contributing to this project.
 
 ## Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/yourusername/mcp-crud-cli.git`
+2. Clone your fork: `git clone https://github.com/yourusername/mcp-ooda-computer.git`
 3. Install dependencies: `npm install`
 4. Create a branch: `git checkout -b feature/your-feature-name`
 

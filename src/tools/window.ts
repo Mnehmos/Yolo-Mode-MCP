@@ -117,9 +117,27 @@ async function listWindowsWin32(): Promise<WindowInfo[]> {
 
 async function listWindowsDarwin(): Promise<WindowInfo[]> {
     try {
-        const { stdout } = await execAsync(`osascript -e 'tell application "System Events" to get {name, unix id} of every process whose visible is true'`, { timeout: 5000 });
-        // Parse macOS output
-        return [];
+        // Get list of visible applications with their process IDs
+        const script = `
+            tell application "System Events"
+                set appList to {}
+                repeat with proc in (every process whose visible is true)
+                    set end of appList to {name of proc, unix id of proc}
+                end repeat
+                return appList
+            end tell
+        `;
+        const { stdout } = await execAsync(`osascript -e '${script.replace(/\n/g, ' ')}'`, { timeout: 5000 });
+        // Parse macOS output format: "{{app1, pid1}, {app2, pid2}, ...}"
+        const windows: WindowInfo[] = [];
+        const matches = stdout.matchAll(/\{([^,]+),\s*(\d+)\}/g);
+        for (const match of matches) {
+            windows.push({
+                title: match[1].trim(),
+                pid: parseInt(match[2]),
+            });
+        }
+        return windows;
     } catch {
         return [];
     }
