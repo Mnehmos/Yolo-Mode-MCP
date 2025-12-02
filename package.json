@@ -1,11 +1,11 @@
 {
-    "name": "mcp-crud-cli",
-    "version": "1.0.0",
+    "name": "mcp-ooda-computer",
+    "version": "2.0.0",
     "type": "module",
-    "description": "MCP server for CLI and CRUD operations in YOLO mode - provides unrestricted CLI access and flexible CRUD operations backed by SQLite",
+    "description": "MCP server for full computer control - OODA loop enabled. CLI, CRUD, Filesystem, Screen capture, Input simulation, Window management, Clipboard, and System operations.",
     "main": "dist/index.js",
     "bin": {
-        "mcp-crud-cli": "dist/index.js"
+        "mcp-ooda-computer": "dist/index.js"
     },
     "scripts": {
         "build": "tsc",
@@ -21,18 +21,23 @@
         "sqlite",
         "model-context-protocol",
         "ai",
-        "llm"
+        "llm",
+        "computer-use",
+        "automation",
+        "screen-capture",
+        "input-simulation",
+        "ooda-loop"
     ],
     "author": "Vario",
     "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "https://github.com/yourusername/mcp-crud-cli.git"
+        "url": "https://github.com/yourusername/mcp-ooda-computer.git"
     },
     "bugs": {
-        "url": "https://github.com/yourusername/mcp-crud-cli/issues"
+        "url": "https://github.com/yourusername/mcp-ooda-computer/issues"
     },
-    "homepage": "https://github.com/yourusername/mcp-crud-cli#readme",
+    "homepage": "https://github.com/yourusername/mcp-ooda-computer#readme",
     "dependencies": {
         "@modelcontextprotocol/sdk": "^0.6.0",
         "sqlite": "^5.0.1",

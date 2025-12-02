@@ -80,6 +80,29 @@ export const ListDirectorySchema = {
     path: z.string(),
 };
 
+// Batch operation schemas for parallel execution
+export const BatchExecCliSchema = {
+    commands: z.array(z.object({
+        command: z.string().describe('The command to execute'),
+        cwd: z.string().optional().describe('Current working directory for the command'),
+    })).describe('Array of commands to execute in parallel'),
+};
+
+export const BatchReadFilesSchema = {
+    paths: z.array(z.string()).describe('Array of file paths to read in parallel'),
+};
+
+export const BatchWriteFilesSchema = {
+    files: z.array(z.object({
+        path: z.string(),
+        content: z.string(),
+    })).describe('Array of files to write in parallel'),
+};
+
+export const BatchListDirectoriesSchema = {
+    paths: z.array(z.string()).describe('Array of directory paths to list in parallel'),
+};
+
 export async function handleReadFile(args: { path: string }) {
     try {
         const content = fs.readFileSync(args.path, 'utf-8');
@@ -134,4 +157,163 @@ export async function handleListDirectory(args: { path: string }) {
             isError: true,
         };
     }
+}
+
+// Batch handlers for parallel execution
+interface BatchResult {
+    index: number;
+    success: boolean;
+    result?: any;
+    error?: string;
+}
+
+export async function handleBatchExecCli(args: { commands: Array<{ command: string; cwd?: string }> }) {
+    const startTime = Date.now();
+
+    const results = await Promise.all(
+        args.commands.map(async (cmd, index): Promise<BatchResult> => {
+            if (isBlocked(cmd.command)) {
+                await logAudit('batch_exec_cli_item', cmd, null, 'Command blocked by safety policy');
+                return { index, success: false, error: 'Command blocked by safety policy' };
+            }
+
+            return new Promise((resolve) => {
+                exec(cmd.command, {
+                    cwd: cmd.cwd || process.cwd(),
+                    timeout: config.cliPolicy.timeoutMs
+                }, async (error, stdout, stderr) => {
+                    if (error && !stdout && !stderr) {
+                        resolve({ index, success: false, error: error.message });
+                    } else {
+                        resolve({
+                            index,
+                            success: !error,
+                            result: { stdout: stdout || '', stderr: stderr || '', exitCode: error ? error.code : 0 }
+                        });
+                    }
+                });
+            });
+        })
+    );
+
+    const successful = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+    const elapsed = Date.now() - startTime;
+
+    await logAudit('batch_exec_cli', { count: args.commands.length }, { successful, failed, elapsed });
+
+    return {
+        content: [{
+            type: 'text',
+            text: JSON.stringify({
+                summary: { total: args.commands.length, successful, failed, elapsed_ms: elapsed },
+                results: results.sort((a, b) => a.index - b.index)
+            }, null, 2)
+        }],
+        isError: failed > 0 && successful === 0,
+    };
+}
+
+export async function handleBatchReadFiles(args: { paths: string[] }) {
+    const startTime = Date.now();
+
+    const results = await Promise.all(
+        args.paths.map(async (filePath, index): Promise<BatchResult> => {
+            try {
+                const content = fs.readFileSync(filePath, 'utf-8');
+                return { index, success: true, result: { path: filePath, content } };
+            } catch (error: any) {
+                return { index, success: false, error: `${filePath}: ${error.message}` };
+            }
+        })
+    );
+
+    const successful = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+    const elapsed = Date.now() - startTime;
+
+    await logAudit('batch_read_files', { count: args.paths.length }, { successful, failed, elapsed });
+
+    return {
+        content: [{
+            type: 'text',
+            text: JSON.stringify({
+                summary: { total: args.paths.length, successful, failed, elapsed_ms: elapsed },
+                results: results.sort((a, b) => a.index - b.index)
+            }, null, 2)
+        }],
+        isError: failed > 0 && successful === 0,
+    };
+}
+
+export async function handleBatchWriteFiles(args: { files: Array<{ path: string; content: string }> }) {
+    const startTime = Date.now();
+
+    const results = await Promise.all(
+        args.files.map(async (file, index): Promise<BatchResult> => {
+            try {
+                const dir = path.dirname(file.path);
+                if (!fs.existsSync(dir)) {
+                    fs.mkdirSync(dir, { recursive: true });
+                }
+                fs.writeFileSync(file.path, file.content, 'utf-8');
+                return { index, success: true, result: { path: file.path, written: true } };
+            } catch (error: any) {
+                return { index, success: false, error: `${file.path}: ${error.message}` };
+            }
+        })
+    );
+
+    const successful = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+    const elapsed = Date.now() - startTime;
+
+    await logAudit('batch_write_files', { count: args.files.length }, { successful, failed, elapsed });
+
+    return {
+        content: [{
+            type: 'text',
+            text: JSON.stringify({
+                summary: { total: args.files.length, successful, failed, elapsed_ms: elapsed },
+                results: results.sort((a, b) => a.index - b.index)
+            }, null, 2)
+        }],
+        isError: failed > 0,
+    };
+}
+
+export async function handleBatchListDirectories(args: { paths: string[] }) {
+    const startTime = Date.now();
+
+    const results = await Promise.all(
+        args.paths.map(async (dirPath, index): Promise<BatchResult> => {
+            try {
+                const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+                const formatted = entries.map(entry => ({
+                    name: entry.name,
+                    type: entry.isDirectory() ? 'directory' : 'file'
+                }));
+                return { index, success: true, result: { path: dirPath, entries: formatted } };
+            } catch (error: any) {
+                return { index, success: false, error: `${dirPath}: ${error.message}` };
+            }
+        })
+    );
+
+    const successful = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+    const elapsed = Date.now() - startTime;
+
+    await logAudit('batch_list_directories', { count: args.paths.length }, { successful, failed, elapsed });
+
+    return {
+        content: [{
+            type: 'text',
+            text: JSON.stringify({
+                summary: { total: args.paths.length, successful, failed, elapsed_ms: elapsed },
+                results: results.sort((a, b) => a.index - b.index)
+            }, null, 2)
+        }],
+        isError: failed > 0 && successful === 0,
+    };
 }
