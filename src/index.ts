@@ -5,6 +5,20 @@ import {
     CallToolRequestSchema,
     ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
+
+// Helper to convert Zod schema objects to JSON Schema
+function toJsonSchema(schemaObj: Record<string, z.ZodTypeAny>, required: string[] = []) {
+    const zodSchema = z.object(schemaObj);
+    const jsonSchema = zodToJsonSchema(zodSchema, { target: 'openApi3' });
+    // Remove the $schema property if present as MCP doesn't need it
+    if (typeof jsonSchema === 'object' && jsonSchema !== null) {
+        const { $schema, ...rest } = jsonSchema as any;
+        return rest;
+    }
+    return jsonSchema;
+}
 
 // CLI Tools
 import {
@@ -168,42 +182,42 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             {
                 name: 'batch_exec_cli',
                 description: 'Execute multiple shell commands in parallel.',
-                inputSchema: { type: 'object', properties: BatchExecCliSchema, required: ['commands'] },
+                inputSchema: toJsonSchema(BatchExecCliSchema),
             },
             {
                 name: 'batch_read_files',
                 description: 'Read multiple files in parallel.',
-                inputSchema: { type: 'object', properties: BatchReadFilesSchema, required: ['paths'] },
+                inputSchema: toJsonSchema(BatchReadFilesSchema),
             },
             {
                 name: 'batch_write_files',
                 description: 'Write multiple files in parallel.',
-                inputSchema: { type: 'object', properties: BatchWriteFilesSchema, required: ['files'] },
+                inputSchema: toJsonSchema(BatchWriteFilesSchema),
             },
             {
                 name: 'batch_list_directories',
                 description: 'List multiple directories in parallel.',
-                inputSchema: { type: 'object', properties: BatchListDirectoriesSchema, required: ['paths'] },
+                inputSchema: toJsonSchema(BatchListDirectoriesSchema),
             },
             {
                 name: 'batch_copy_files',
                 description: 'Copy multiple files in parallel.',
-                inputSchema: { type: 'object', properties: BatchCopyFilesSchema, required: ['operations'] },
+                inputSchema: toJsonSchema(BatchCopyFilesSchema),
             },
             {
                 name: 'batch_move_files',
                 description: 'Move multiple files in parallel.',
-                inputSchema: { type: 'object', properties: BatchMoveFilesSchema, required: ['operations'] },
+                inputSchema: toJsonSchema(BatchMoveFilesSchema),
             },
             {
                 name: 'batch_delete_files',
                 description: 'Delete multiple files in parallel.',
-                inputSchema: { type: 'object', properties: BatchDeleteFilesSchema, required: ['paths'] },
+                inputSchema: toJsonSchema(BatchDeleteFilesSchema),
             },
             {
                 name: 'batch_file_info',
                 description: 'Get info for multiple files in parallel.',
-                inputSchema: { type: 'object', properties: BatchFileInfoSchema, required: ['paths'] },
+                inputSchema: toJsonSchema(BatchFileInfoSchema),
             },
 
             // ==========================================
@@ -237,22 +251,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             {
                 name: 'crud_batch_create',
                 description: 'Create multiple records in parallel.',
-                inputSchema: { type: 'object', properties: CrudBatchCreateSchema, required: ['operations'] },
+                inputSchema: toJsonSchema(CrudBatchCreateSchema),
             },
             {
                 name: 'crud_batch_read',
                 description: 'Read multiple records in parallel.',
-                inputSchema: { type: 'object', properties: CrudBatchReadSchema, required: ['operations'] },
+                inputSchema: toJsonSchema(CrudBatchReadSchema),
             },
             {
                 name: 'crud_batch_update',
                 description: 'Update multiple records in parallel.',
-                inputSchema: { type: 'object', properties: CrudBatchUpdateSchema, required: ['operations'] },
+                inputSchema: toJsonSchema(CrudBatchUpdateSchema),
             },
             {
                 name: 'crud_batch_delete',
                 description: 'Delete multiple records in parallel.',
-                inputSchema: { type: 'object', properties: CrudBatchDeleteSchema, required: ['operations'] },
+                inputSchema: toJsonSchema(CrudBatchDeleteSchema),
             },
 
             // ==========================================
@@ -325,12 +339,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             {
                 name: 'batch_keyboard_actions',
                 description: 'Execute sequence of keyboard actions (type, press, shortcut, wait).',
-                inputSchema: { type: 'object', properties: BatchKeyboardActionsSchema, required: ['actions'] },
+                inputSchema: toJsonSchema(BatchKeyboardActionsSchema),
             },
             {
                 name: 'batch_mouse_actions',
                 description: 'Execute sequence of mouse actions (move, click, drag, scroll, wait).',
-                inputSchema: { type: 'object', properties: BatchMouseActionsSchema, required: ['actions'] },
+                inputSchema: toJsonSchema(BatchMouseActionsSchema),
             },
 
             // ==========================================
