@@ -80,6 +80,13 @@ export const ListDirectorySchema = {
     path: z.string(),
 };
 
+// String replace schema - renamed parameters to avoid potential filtering
+export const StrReplaceSchema = {
+    path: z.string().describe('Path to the file to edit'),
+    oldText: z.string().describe('Text to replace (must be unique in file)'),
+    newText: z.string().optional().describe('Replacement text (empty to delete)'),
+};
+
 // Batch operation schemas for parallel execution
 export const BatchExecCliSchema = {
     commands: z.array(z.object({
@@ -154,6 +161,72 @@ export async function handleListDirectory(args: { path: string }) {
         await logAudit('list_directory', args, null, error.message);
         return {
             content: [{ type: 'text', text: `Error listing directory: ${error.message}` }],
+            isError: true,
+        };
+    }
+}
+
+// String replace handler - replaces a unique string in a file
+// Accepts both old parameter names (old_str/new_str) and new ones (oldText/newText) for compatibility
+export async function handleStrReplace(args: { path: string; oldText?: string; newText?: string; old_str?: string; new_str?: string }) {
+    try {
+        // Support both parameter naming conventions
+        const oldStr = args.oldText ?? args.old_str;
+        const newStr = args.newText ?? args.new_str ?? '';
+        
+        if (!oldStr) {
+            return {
+                content: [{ type: 'text', text: 'Error: oldText parameter is required' }],
+                isError: true,
+            };
+        }
+
+        // Read the file
+        if (!fs.existsSync(args.path)) {
+            const error = `File not found: ${args.path}`;
+            await logAudit('str_replace', args, null, error);
+            return {
+                content: [{ type: 'text', text: `Error: ${error}` }],
+                isError: true,
+            };
+        }
+
+        const content = fs.readFileSync(args.path, 'utf-8');
+
+        // Count occurrences
+        const occurrences = content.split(oldStr).length - 1;
+
+        if (occurrences === 0) {
+            const error = `String not found in file: "${oldStr.substring(0, 50)}${oldStr.length > 50 ? '...' : ''}"`;
+            await logAudit('str_replace', args, null, error);
+            return {
+                content: [{ type: 'text', text: `Error: ${error}` }],
+                isError: true,
+            };
+        }
+
+        if (occurrences > 1) {
+            const error = `String appears ${occurrences} times in file. The string to replace must be unique. Add more context to make it unique.`;
+            await logAudit('str_replace', args, null, error);
+            return {
+                content: [{ type: 'text', text: `Error: ${error}` }],
+                isError: true,
+            };
+        }
+
+        // Replace the string
+        const newContent = content.replace(oldStr, newStr);
+        fs.writeFileSync(args.path, newContent, 'utf-8');
+
+        await logAudit('str_replace', { path: args.path, oldText_length: oldStr.length, newText_length: newStr.length }, 'success');
+
+        return {
+            content: [{ type: 'text', text: `Successfully replaced string in ${args.path}` }],
+        };
+    } catch (error: any) {
+        await logAudit('str_replace', args, null, error.message);
+        return {
+            content: [{ type: 'text', text: `Error: ${error.message}` }],
             isError: true,
         };
     }

@@ -9,13 +9,17 @@ import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 
 // Helper to convert Zod schema objects to JSON Schema
-function toJsonSchema(schemaObj: Record<string, z.ZodTypeAny>, required: string[] = []) {
+function toJsonSchema(schemaObj: Record<string, z.ZodTypeAny>, required?: string[]): Record<string, unknown> {
     const zodSchema = z.object(schemaObj);
-    const jsonSchema = zodToJsonSchema(zodSchema, { target: 'openApi3' });
+    // @ts-expect-error - zodToJsonSchema types are overly complex and cause TS2589
+    const jsonSchema = zodToJsonSchema(zodSchema, { target: 'openApi3' }) as Record<string, unknown>;
     // Remove the $schema property if present as MCP doesn't need it
-    if (typeof jsonSchema === 'object' && jsonSchema !== null) {
-        const { $schema, ...rest } = jsonSchema as any;
-        return rest;
+    if (jsonSchema && typeof jsonSchema === 'object') {
+        delete jsonSchema['$schema'];
+        // Override required if specified
+        if (required) {
+            jsonSchema['required'] = required;
+        }
     }
     return jsonSchema;
 }
@@ -26,6 +30,7 @@ import {
     handleReadFile, ReadFileSchema,
     handleWriteFile, WriteFileSchema,
     handleListDirectory, ListDirectorySchema,
+    handleStrReplace, StrReplaceSchema,
     handleBatchExecCli, BatchExecCliSchema,
     handleBatchReadFiles, BatchReadFilesSchema,
     handleBatchWriteFiles, BatchWriteFilesSchema,
@@ -134,48 +139,53 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             // ==========================================
             {
                 name: 'exec_cli',
-                description: 'Execute a shell command. For multiple commands, use batch_exec_cli for parallel execution.',
-                inputSchema: { type: 'object', properties: ExecCliSchema, required: ['command'] },
+                description: 'Execute shell commands on the host system (YOLO mode)',
+                inputSchema: toJsonSchema(ExecCliSchema, ['command']),
             },
             {
                 name: 'read_file',
-                description: 'Read file contents. For multiple files, use batch_read_files.',
-                inputSchema: { type: 'object', properties: ReadFileSchema, required: ['path'] },
+                description: 'Read file contents',
+                inputSchema: toJsonSchema(ReadFileSchema, ['path']),
             },
             {
                 name: 'write_file',
-                description: 'Write content to file. For multiple files, use batch_write_files.',
-                inputSchema: { type: 'object', properties: WriteFileSchema, required: ['path', 'content'] },
+                description: 'Write content to a file',
+                inputSchema: toJsonSchema(WriteFileSchema, ['path', 'content']),
             },
             {
                 name: 'list_directory',
-                description: 'List directory contents. For multiple directories, use batch_list_directories.',
-                inputSchema: { type: 'object', properties: ListDirectorySchema, required: ['path'] },
+                description: 'List contents of a directory',
+                inputSchema: toJsonSchema(ListDirectorySchema, ['path']),
+            },
+            {
+                name: 'str_replace',
+                description: 'Replace a unique string in a file with another string. The string to replace must appear exactly once in the file.',
+                inputSchema: toJsonSchema(StrReplaceSchema, ['path', 'oldText']),
             },
             {
                 name: 'copy_file',
                 description: 'Copy a file or directory. For multiple operations, use batch_copy_files.',
-                inputSchema: { type: 'object', properties: CopyFileSchema, required: ['source', 'destination'] },
+                inputSchema: toJsonSchema(CopyFileSchema, ['source', 'destination']),
             },
             {
                 name: 'move_file',
                 description: 'Move/rename a file or directory. For multiple operations, use batch_move_files.',
-                inputSchema: { type: 'object', properties: MoveFileSchema, required: ['source', 'destination'] },
+                inputSchema: toJsonSchema(MoveFileSchema, ['source', 'destination']),
             },
             {
                 name: 'delete_file',
                 description: 'Delete a file or directory. For multiple deletions, use batch_delete_files.',
-                inputSchema: { type: 'object', properties: DeleteFileSchema, required: ['path'] },
+                inputSchema: toJsonSchema(DeleteFileSchema, ['path']),
             },
             {
                 name: 'file_info',
                 description: 'Get file/directory metadata (size, dates, type). For multiple paths, use batch_file_info.',
-                inputSchema: { type: 'object', properties: FileInfoSchema, required: ['path'] },
+                inputSchema: toJsonSchema(FileInfoSchema, ['path']),
             },
             {
                 name: 'search_files',
                 description: 'Search for files by pattern in a directory tree.',
-                inputSchema: { type: 'object', properties: SearchFilesSchema, required: ['directory', 'pattern'] },
+                inputSchema: toJsonSchema(SearchFilesSchema, ['directory', 'pattern']),
             },
 
             // Batch file operations
@@ -225,28 +235,28 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             // ==========================================
             {
                 name: 'crud_create',
-                description: 'Create a record. For multiple records, use crud_batch_create.',
-                inputSchema: { type: 'object', properties: CrudCreateSchema, required: ['collection', 'data'] },
+                description: 'Create a new record in a collection',
+                inputSchema: toJsonSchema(CrudCreateSchema, ['collection', 'data']),
             },
             {
                 name: 'crud_read',
-                description: 'Read a record by ID. For multiple records, use crud_batch_read.',
-                inputSchema: { type: 'object', properties: CrudReadSchema, required: ['collection', 'id'] },
+                description: 'Read a record by ID',
+                inputSchema: toJsonSchema(CrudReadSchema, ['collection', 'id']),
             },
             {
                 name: 'crud_update',
-                description: 'Update a record. For multiple records, use crud_batch_update.',
-                inputSchema: { type: 'object', properties: CrudUpdateSchema, required: ['collection', 'id', 'data'] },
+                description: 'Update an existing record',
+                inputSchema: toJsonSchema(CrudUpdateSchema, ['collection', 'id', 'data']),
             },
             {
                 name: 'crud_delete',
-                description: 'Delete a record. For multiple records, use crud_batch_delete.',
-                inputSchema: { type: 'object', properties: CrudDeleteSchema, required: ['collection', 'id'] },
+                description: 'Delete a record',
+                inputSchema: toJsonSchema(CrudDeleteSchema, ['collection', 'id']),
             },
             {
                 name: 'crud_query',
-                description: 'Query records with optional filtering.',
-                inputSchema: { type: 'object', properties: CrudQuerySchema, required: ['collection'] },
+                description: 'Query records in a collection',
+                inputSchema: toJsonSchema(CrudQuerySchema, ['collection']),
             },
             {
                 name: 'crud_batch_create',
@@ -275,22 +285,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             {
                 name: 'screenshot',
                 description: 'Capture screenshot of screen or region. Returns base64 image or saves to file.',
-                inputSchema: { type: 'object', properties: ScreenshotSchema },
+                inputSchema: toJsonSchema(ScreenshotSchema),
             },
             {
                 name: 'get_screen_info',
                 description: 'Get display/monitor information (resolution, count, positions).',
-                inputSchema: { type: 'object', properties: GetScreenInfoSchema },
+                inputSchema: toJsonSchema(GetScreenInfoSchema),
             },
             {
                 name: 'wait_for_screen_change',
                 description: 'Wait until screen content changes in a region. Useful for detecting UI updates.',
-                inputSchema: { type: 'object', properties: WaitForScreenChangeSchema },
+                inputSchema: toJsonSchema(WaitForScreenChangeSchema),
             },
             {
                 name: 'find_on_screen',
                 description: 'Find text or image on screen (requires OCR/template matching dependencies).',
-                inputSchema: { type: 'object', properties: FindOnScreenSchema },
+                inputSchema: toJsonSchema(FindOnScreenSchema),
             },
 
             // ==========================================
@@ -299,42 +309,42 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             {
                 name: 'keyboard_type',
                 description: 'Type text as keyboard input.',
-                inputSchema: { type: 'object', properties: KeyboardTypeSchema, required: ['text'] },
+                inputSchema: toJsonSchema(KeyboardTypeSchema, ['text']),
             },
             {
                 name: 'keyboard_press',
                 description: 'Press a key with optional modifiers (ctrl, alt, shift).',
-                inputSchema: { type: 'object', properties: KeyboardPressSchema, required: ['key'] },
+                inputSchema: toJsonSchema(KeyboardPressSchema, ['key']),
             },
             {
                 name: 'keyboard_shortcut',
                 description: 'Execute keyboard shortcut (e.g., "ctrl+c", "alt+tab").',
-                inputSchema: { type: 'object', properties: KeyboardShortcutSchema, required: ['shortcut'] },
+                inputSchema: toJsonSchema(KeyboardShortcutSchema, ['shortcut']),
             },
             {
                 name: 'mouse_move',
                 description: 'Move mouse cursor to coordinates.',
-                inputSchema: { type: 'object', properties: MouseMoveSchema, required: ['x', 'y'] },
+                inputSchema: toJsonSchema(MouseMoveSchema, ['x', 'y']),
             },
             {
                 name: 'mouse_click',
                 description: 'Click mouse button at position. Supports double-click.',
-                inputSchema: { type: 'object', properties: MouseClickSchema },
+                inputSchema: toJsonSchema(MouseClickSchema),
             },
             {
                 name: 'mouse_drag',
                 description: 'Drag from one position to another.',
-                inputSchema: { type: 'object', properties: MouseDragSchema, required: ['startX', 'startY', 'endX', 'endY'] },
+                inputSchema: toJsonSchema(MouseDragSchema, ['startX', 'startY', 'endX', 'endY']),
             },
             {
                 name: 'mouse_scroll',
                 description: 'Scroll mouse wheel.',
-                inputSchema: { type: 'object', properties: MouseScrollSchema, required: ['deltaY'] },
+                inputSchema: toJsonSchema(MouseScrollSchema, ['deltaY']),
             },
             {
                 name: 'get_mouse_position',
                 description: 'Get current mouse cursor position.',
-                inputSchema: { type: 'object', properties: GetMousePositionSchema },
+                inputSchema: toJsonSchema(GetMousePositionSchema),
             },
             {
                 name: 'batch_keyboard_actions',
@@ -353,52 +363,52 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             {
                 name: 'list_windows',
                 description: 'List all open windows with titles and process info.',
-                inputSchema: { type: 'object', properties: ListWindowsSchema },
+                inputSchema: toJsonSchema(ListWindowsSchema),
             },
             {
                 name: 'get_active_window',
                 description: 'Get information about the currently focused window.',
-                inputSchema: { type: 'object', properties: GetActiveWindowSchema },
+                inputSchema: toJsonSchema(GetActiveWindowSchema),
             },
             {
                 name: 'focus_window',
                 description: 'Bring a window to the foreground by title or PID.',
-                inputSchema: { type: 'object', properties: FocusWindowSchema },
+                inputSchema: toJsonSchema(FocusWindowSchema),
             },
             {
                 name: 'minimize_window',
                 description: 'Minimize a window or all windows.',
-                inputSchema: { type: 'object', properties: MinimizeWindowSchema },
+                inputSchema: toJsonSchema(MinimizeWindowSchema),
             },
             {
                 name: 'maximize_window',
                 description: 'Maximize the active or specified window.',
-                inputSchema: { type: 'object', properties: MaximizeWindowSchema },
+                inputSchema: toJsonSchema(MaximizeWindowSchema),
             },
             {
                 name: 'restore_window',
                 description: 'Restore a minimized/maximized window.',
-                inputSchema: { type: 'object', properties: RestoreWindowSchema },
+                inputSchema: toJsonSchema(RestoreWindowSchema),
             },
             {
                 name: 'close_window',
                 description: 'Close a window. Use force to kill the process.',
-                inputSchema: { type: 'object', properties: CloseWindowSchema },
+                inputSchema: toJsonSchema(CloseWindowSchema),
             },
             {
                 name: 'resize_window',
                 description: 'Resize the active or specified window.',
-                inputSchema: { type: 'object', properties: ResizeWindowSchema, required: ['width', 'height'] },
+                inputSchema: toJsonSchema(ResizeWindowSchema, ['width', 'height']),
             },
             {
                 name: 'move_window',
                 description: 'Move the active or specified window.',
-                inputSchema: { type: 'object', properties: MoveWindowSchema, required: ['x', 'y'] },
+                inputSchema: toJsonSchema(MoveWindowSchema, ['x', 'y']),
             },
             {
                 name: 'launch_application',
                 description: 'Launch an application by path or name.',
-                inputSchema: { type: 'object', properties: LaunchApplicationSchema, required: ['path'] },
+                inputSchema: toJsonSchema(LaunchApplicationSchema, ['path']),
             },
 
             // ==========================================
@@ -407,22 +417,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             {
                 name: 'clipboard_read',
                 description: 'Read clipboard contents (text, HTML, or image as base64).',
-                inputSchema: { type: 'object', properties: ClipboardReadSchema },
+                inputSchema: toJsonSchema(ClipboardReadSchema),
             },
             {
                 name: 'clipboard_write',
                 description: 'Write text or HTML to clipboard.',
-                inputSchema: { type: 'object', properties: ClipboardWriteSchema, required: ['content'] },
+                inputSchema: toJsonSchema(ClipboardWriteSchema, ['content']),
             },
             {
                 name: 'clipboard_clear',
                 description: 'Clear the clipboard.',
-                inputSchema: { type: 'object', properties: ClipboardClearSchema },
+                inputSchema: toJsonSchema(ClipboardClearSchema),
             },
             {
                 name: 'clipboard_has_format',
                 description: 'Check if clipboard contains a specific format.',
-                inputSchema: { type: 'object', properties: ClipboardHasFormatSchema, required: ['format'] },
+                inputSchema: toJsonSchema(ClipboardHasFormatSchema, ['format']),
             },
 
             // ==========================================
@@ -431,42 +441,42 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             {
                 name: 'get_system_info',
                 description: 'Get system information (OS, CPU, memory, uptime).',
-                inputSchema: { type: 'object', properties: GetSystemInfoSchema },
+                inputSchema: toJsonSchema(GetSystemInfoSchema),
             },
             {
                 name: 'list_processes',
                 description: 'List running processes with CPU/memory usage.',
-                inputSchema: { type: 'object', properties: ListProcessesSchema },
+                inputSchema: toJsonSchema(ListProcessesSchema),
             },
             {
                 name: 'kill_process',
                 description: 'Kill a process by PID or name.',
-                inputSchema: { type: 'object', properties: KillProcessSchema },
+                inputSchema: toJsonSchema(KillProcessSchema),
             },
             {
                 name: 'get_environment',
                 description: 'Get environment variable(s).',
-                inputSchema: { type: 'object', properties: GetEnvironmentSchema },
+                inputSchema: toJsonSchema(GetEnvironmentSchema),
             },
             {
                 name: 'set_environment',
                 description: 'Set an environment variable.',
-                inputSchema: { type: 'object', properties: SetEnvironmentSchema, required: ['variable', 'value'] },
+                inputSchema: toJsonSchema(SetEnvironmentSchema, ['variable', 'value']),
             },
             {
                 name: 'get_network_info',
                 description: 'Get network interface information.',
-                inputSchema: { type: 'object', properties: GetNetworkInfoSchema },
+                inputSchema: toJsonSchema(GetNetworkInfoSchema),
             },
             {
                 name: 'wait',
                 description: 'Wait/sleep for specified milliseconds. Use in action sequences.',
-                inputSchema: { type: 'object', properties: WaitSchema, required: ['ms'] },
+                inputSchema: toJsonSchema(WaitSchema, ['ms']),
             },
             {
                 name: 'notify',
                 description: 'Show a system notification.',
-                inputSchema: { type: 'object', properties: NotifySchema, required: ['title', 'message'] },
+                inputSchema: toJsonSchema(NotifySchema, ['title', 'message']),
             },
         ],
     };
@@ -485,6 +495,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         case 'read_file': return handleReadFile(args as any) as any;
         case 'write_file': return handleWriteFile(args as any) as any;
         case 'list_directory': return handleListDirectory(args as any) as any;
+        case 'str_replace': return handleStrReplace(args as any) as any;
         case 'copy_file': return handleCopyFile(args as any) as any;
         case 'move_file': return handleMoveFile(args as any) as any;
         case 'delete_file': return handleDeleteFile(args as any) as any;
