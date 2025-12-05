@@ -110,6 +110,24 @@ export const BatchListDirectoriesSchema = {
     paths: z.array(z.string()).describe('Array of directory paths to list in parallel'),
 };
 
+// Read specific lines from a file (token-efficient alternative to reading entire file)
+export const ReadFileLinesSchema = {
+    path: z.string().describe('Path to the file to read'),
+    startLine: z.number().optional().describe('Starting line number (1-indexed, default: 1)'),
+    endLine: z.number().optional().describe('Ending line number (inclusive, default: end of file)'),
+    includeLineNumbers: z.boolean().optional().describe('Include line numbers in output (default: true)'),
+};
+
+// Search for patterns within a file and return matching lines
+export const SearchInFileSchema = {
+    path: z.string().describe('Path to the file to search'),
+    pattern: z.string().describe('Text or regex pattern to search for'),
+    isRegex: z.boolean().optional().describe('Treat pattern as regex (default: false)'),
+    caseSensitive: z.boolean().optional().describe('Case sensitive search (default: true)'),
+    contextLines: z.number().optional().describe('Number of lines of context before and after matches (default: 0)'),
+    maxMatches: z.number().optional().describe('Maximum number of matches to return (default: 100)'),
+};
+
 export async function handleReadFile(args: { path: string }) {
     try {
         const content = fs.readFileSync(args.path, 'utf-8');
@@ -121,6 +139,171 @@ export async function handleReadFile(args: { path: string }) {
         await logAudit('read_file', args, null, error.message);
         return {
             content: [{ type: 'text', text: `Error reading file: ${error.message}` }],
+            isError: true,
+        };
+    }
+}
+
+// Read specific lines from a file (token-efficient)
+export async function handleReadFileLines(args: {
+    path: string;
+    startLine?: number;
+    endLine?: number;
+    includeLineNumbers?: boolean;
+}) {
+    try {
+        const content = fs.readFileSync(args.path, 'utf-8');
+        const allLines = content.split('\n');
+        const totalLines = allLines.length;
+
+        const startLine = Math.max(1, args.startLine ?? 1);
+        const endLine = Math.min(totalLines, args.endLine ?? totalLines);
+        const includeLineNumbers = args.includeLineNumbers !== false; // default true
+
+        if (startLine > totalLines) {
+            return {
+                content: [{ type: 'text', text: `Error: startLine ${startLine} exceeds total lines ${totalLines}` }],
+                isError: true,
+            };
+        }
+
+        // Extract the requested lines (convert to 0-indexed)
+        const selectedLines = allLines.slice(startLine - 1, endLine);
+
+        let output: string;
+        if (includeLineNumbers) {
+            const lineNumWidth = String(endLine).length;
+            output = selectedLines.map((line, idx) => {
+                const lineNum = String(startLine + idx).padStart(lineNumWidth, ' ');
+                return `${lineNum}: ${line}`;
+            }).join('\n');
+        } else {
+            output = selectedLines.join('\n');
+        }
+
+        await logAudit('read_file_lines', { path: args.path, startLine, endLine }, `read ${selectedLines.length} lines`);
+
+        return {
+            content: [{
+                type: 'text',
+                text: JSON.stringify({
+                    path: args.path,
+                    totalLines,
+                    startLine,
+                    endLine,
+                    linesReturned: selectedLines.length,
+                    content: output
+                }, null, 2)
+            }],
+        };
+    } catch (error: any) {
+        await logAudit('read_file_lines', args, null, error.message);
+        return {
+            content: [{ type: 'text', text: `Error reading file: ${error.message}` }],
+            isError: true,
+        };
+    }
+}
+
+// Search for patterns within a file
+export async function handleSearchInFile(args: {
+    path: string;
+    pattern: string;
+    isRegex?: boolean;
+    caseSensitive?: boolean;
+    contextLines?: number;
+    maxMatches?: number;
+}) {
+    try {
+        const content = fs.readFileSync(args.path, 'utf-8');
+        const lines = content.split('\n');
+        const totalLines = lines.length;
+
+        const isRegex = args.isRegex ?? false;
+        const caseSensitive = args.caseSensitive !== false; // default true
+        const contextLines = args.contextLines ?? 0;
+        const maxMatches = args.maxMatches ?? 100;
+
+        // Build the search pattern
+        let regex: RegExp;
+        try {
+            if (isRegex) {
+                regex = new RegExp(args.pattern, caseSensitive ? 'g' : 'gi');
+            } else {
+                // Escape special regex characters for literal search
+                const escaped = args.pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                regex = new RegExp(escaped, caseSensitive ? 'g' : 'gi');
+            }
+        } catch (regexError: any) {
+            return {
+                content: [{ type: 'text', text: `Error: Invalid regex pattern: ${regexError.message}` }],
+                isError: true,
+            };
+        }
+
+        interface Match {
+            lineNumber: number;
+            line: string;
+            context?: {
+                before: Array<{ lineNumber: number; line: string }>;
+                after: Array<{ lineNumber: number; line: string }>;
+            };
+        }
+
+        const matches: Match[] = [];
+        const matchedLineNumbers = new Set<number>();
+
+        // Find all matching lines
+        for (let i = 0; i < lines.length && matches.length < maxMatches; i++) {
+            if (regex.test(lines[i])) {
+                matchedLineNumbers.add(i);
+                const match: Match = {
+                    lineNumber: i + 1,
+                    line: lines[i],
+                };
+
+                if (contextLines > 0) {
+                    const beforeLines: Array<{ lineNumber: number; line: string }> = [];
+                    const afterLines: Array<{ lineNumber: number; line: string }> = [];
+
+                    // Get context before
+                    for (let b = Math.max(0, i - contextLines); b < i; b++) {
+                        beforeLines.push({ lineNumber: b + 1, line: lines[b] });
+                    }
+
+                    // Get context after
+                    for (let a = i + 1; a <= Math.min(lines.length - 1, i + contextLines); a++) {
+                        afterLines.push({ lineNumber: a + 1, line: lines[a] });
+                    }
+
+                    match.context = { before: beforeLines, after: afterLines };
+                }
+
+                matches.push(match);
+            }
+            // Reset regex lastIndex for next test
+            regex.lastIndex = 0;
+        }
+
+        await logAudit('search_in_file', { path: args.path, pattern: args.pattern }, `found ${matches.length} matches`);
+
+        return {
+            content: [{
+                type: 'text',
+                text: JSON.stringify({
+                    path: args.path,
+                    pattern: args.pattern,
+                    totalLines,
+                    matchCount: matches.length,
+                    truncated: matches.length >= maxMatches,
+                    matches
+                }, null, 2)
+            }],
+        };
+    } catch (error: any) {
+        await logAudit('search_in_file', args, null, error.message);
+        return {
+            content: [{ type: 'text', text: `Error searching file: ${error.message}` }],
             isError: true,
         };
     }

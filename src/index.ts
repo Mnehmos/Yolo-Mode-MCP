@@ -31,6 +31,8 @@ import {
     handleWriteFile, WriteFileSchema,
     handleListDirectory, ListDirectorySchema,
     handleStrReplace, StrReplaceSchema,
+    handleReadFileLines, ReadFileLinesSchema,
+    handleSearchInFile, SearchInFileSchema,
     handleBatchExecCli, BatchExecCliSchema,
     handleBatchReadFiles, BatchReadFilesSchema,
     handleBatchWriteFiles, BatchWriteFilesSchema,
@@ -186,6 +188,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 name: 'search_files',
                 description: 'Search for files by pattern in a directory tree.',
                 inputSchema: toJsonSchema(SearchFilesSchema, ['directory', 'pattern']),
+            },
+            {
+                name: 'read_file_lines',
+                description: 'Read specific lines from a file (token-efficient). Returns line range with optional line numbers. Use this instead of read_file when you only need a portion of a large file.',
+                inputSchema: toJsonSchema(ReadFileLinesSchema, ['path']),
+            },
+            {
+                name: 'search_in_file',
+                description: 'Search for text or regex patterns within a file. Returns matching lines with optional context. More efficient than reading entire file when looking for specific content.',
+                inputSchema: toJsonSchema(SearchInFileSchema, ['path', 'pattern']),
             },
 
             // Batch file operations
@@ -501,6 +513,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         case 'delete_file': return handleDeleteFile(args as any) as any;
         case 'file_info': return handleFileInfo(args as any) as any;
         case 'search_files': return handleSearchFiles(args as any) as any;
+        case 'read_file_lines': return handleReadFileLines(args as any) as any;
+        case 'search_in_file': return handleSearchInFile(args as any) as any;
         case 'batch_exec_cli': return handleBatchExecCli(args as any) as any;
         case 'batch_read_files': return handleBatchReadFiles(args as any) as any;
         case 'batch_write_files': return handleBatchWriteFiles(args as any) as any;
