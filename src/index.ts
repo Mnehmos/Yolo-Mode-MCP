@@ -99,7 +99,8 @@ import {
     handleCloseWindow, CloseWindowSchema,
     handleResizeWindow, ResizeWindowSchema,
     handleMoveWindow, MoveWindowSchema,
-    handleLaunchApplication, LaunchApplicationSchema
+    handleLaunchApplication, LaunchApplicationSchema,
+    handleWaitForWindow, WaitForWindowSchema
 } from './tools/window.js';
 
 // Clipboard Tools
@@ -541,6 +542,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 description: 'Launch an application by path or name.',
                 inputSchema: toJsonSchema(LaunchApplicationSchema, ['path']),
             },
+            {
+                name: 'wait_for_window',
+                description: 'Wait for a window to appear. Matches process name or window title.',
+                inputSchema: toJsonSchema(WaitForWindowSchema, ['title']),
+            },
+
 
             // ==========================================
             // === Clipboard ===
@@ -814,6 +821,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         case 'resize_window': return handleResizeWindow(args as any) as any;
         case 'move_window': return handleMoveWindow(args as any) as any;
         case 'launch_application': return handleLaunchApplication(args as any) as any;
+        case 'wait_for_window': return handleWaitForWindow(args as any) as any;
 
         // Clipboard
         case 'clipboard_read': return handleClipboardRead(args as any) as any;

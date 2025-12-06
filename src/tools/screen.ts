@@ -2,9 +2,11 @@ import { z } from 'zod';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
+import { promises as fsPromises } from 'fs';
 import path from 'path';
 import os from 'os';
 import { logAudit } from '../audit.js';
+import { PowerShellSession } from '../utils/powerShellSession.js';
 
 const execAsync = promisify(exec);
 
@@ -62,25 +64,33 @@ async function captureScreen(options: {
                 ? `
                     Add-Type -AssemblyName System.Windows.Forms
                     Add-Type -AssemblyName System.Drawing
-                    $bitmap = New-Object System.Drawing.Bitmap(${options.region.width}, ${options.region.height})
-                    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-                    $graphics.CopyFromScreen(${options.region.x}, ${options.region.y}, 0, 0, $bitmap.Size)
-                    $bitmap.Save('${tempPath.replace(/\\/g, '\\\\')}')
-                    $graphics.Dispose()
-                    $bitmap.Dispose()
+                    
+                    try {
+                        $bitmap = New-Object System.Drawing.Bitmap(${options.region.width}, ${options.region.height})
+                        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+                        $graphics.CopyFromScreen(${options.region.x}, ${options.region.y}, 0, 0, $bitmap.Size)
+                        $bitmap.Save('${tempPath.replace(/\\/g, '\\\\')}')
+                    } finally {
+                        if ($graphics) { $graphics.Dispose() }
+                        if ($bitmap) { $bitmap.Dispose() }
+                    }
                 `
                 : `
                     Add-Type -AssemblyName System.Windows.Forms
                     Add-Type -AssemblyName System.Drawing
-                    $screen = [System.Windows.Forms.Screen]::PrimaryScreen
-                    $bitmap = New-Object System.Drawing.Bitmap($screen.Bounds.Width, $screen.Bounds.Height)
-                    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-                    $graphics.CopyFromScreen($screen.Bounds.Location, [System.Drawing.Point]::Empty, $screen.Bounds.Size)
-                    $bitmap.Save('${tempPath.replace(/\\/g, '\\\\')}')
-                    $graphics.Dispose()
-                    $bitmap.Dispose()
+                    
+                    try {
+                        $screen = [System.Windows.Forms.Screen]::PrimaryScreen
+                        $bitmap = New-Object System.Drawing.Bitmap($screen.Bounds.Width, $screen.Bounds.Height)
+                        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+                        $graphics.CopyFromScreen($screen.Bounds.Location, [System.Drawing.Point]::Empty, $screen.Bounds.Size)
+                        $bitmap.Save('${tempPath.replace(/\\/g, '\\\\')}')
+                    } finally {
+                        if ($graphics) { $graphics.Dispose() }
+                        if ($bitmap) { $bitmap.Dispose() }
+                    }
                 `;
-            await execAsync(`powershell -Command "${script.replace(/\n/g, ' ')}"`, { timeout: 10000 });
+            await PowerShellSession.getInstance().execute(script);
         } else if (platform === 'darwin') {
             // macOS: use screencapture
             const regionArgs = options.region
@@ -131,7 +141,7 @@ async function getDisplayInfo(): Promise<any[]> {
                 }
             } | ConvertTo-Json
         `;
-        const { stdout } = await execAsync(`powershell -Command "${script.replace(/\n/g, ' ')}"`, { timeout: 5000 });
+        const stdout = await PowerShellSession.getInstance().execute(script);
         const result = JSON.parse(stdout);
         return Array.isArray(result) ? result : [result];
     } else if (platform === 'darwin') {

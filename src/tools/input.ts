@@ -3,6 +3,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import os from 'os';
 import { logAudit } from '../audit.js';
+import { PowerShellSession } from '../utils/powerShellSession.js';
 
 const execAsync = promisify(exec);
 
@@ -85,7 +86,7 @@ async function sendKeys(text: string): Promise<void> {
             Add-Type -AssemblyName System.Windows.Forms
             [System.Windows.Forms.SendKeys]::SendWait('${escaped}')
         `;
-        await execAsync(`powershell -Command "${script.replace(/\n/g, ' ')}"`, { timeout: 5000 });
+        await PowerShellSession.getInstance().execute(script);
     } else if (platform === 'darwin') {
         // macOS: use osascript
         const escaped = text.replace(/"/g, '\\"').replace(/'/g, "'\\''");
@@ -120,7 +121,7 @@ async function pressKey(key: string, modifiers: string[] = []): Promise<void> {
             Add-Type -AssemblyName System.Windows.Forms
             [System.Windows.Forms.SendKeys]::SendWait('${prefix}${sendKey}')
         `;
-        await execAsync(`powershell -Command "${script.replace(/\n/g, ' ')}"`, { timeout: 5000 });
+        await PowerShellSession.getInstance().execute(script);
     } else if (platform === 'darwin') {
         let modStr = '';
         if (modifiers.includes('ctrl') || modifiers.includes('command') || modifiers.includes('meta')) modStr += 'command down, ';
@@ -145,20 +146,36 @@ function getMacKeyCode(key: string): number {
     return codes[key.toLowerCase()] || 0;
 }
 
+// Unified Mouse class for persistent session
+const EnsureMCPMouseScript = `
+    if (-not ("MCP_Mouse" -as [type])) {
+        Add-Type -TypeDefinition @"
+        using System;
+        using System.Runtime.InteropServices;
+        public class MCP_Mouse {
+            [DllImport("user32.dll")]
+            public static extern bool SetCursorPos(int X, int Y);
+            
+            [DllImport("user32.dll")]
+            public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);
+            
+            [StructLayout(LayoutKind.Sequential)]
+            public struct POINT { public int X; public int Y; }
+            
+            [DllImport("user32.dll")]
+            public static extern bool GetCursorPos(out POINT lpPoint);
+        }
+"@
+    }
+`;
+
 async function moveMouse(x: number, y: number): Promise<void> {
     if (platform === 'win32') {
         const script = `
-            Add-Type -TypeDefinition @"
-            using System;
-            using System.Runtime.InteropServices;
-            public class Mouse {
-                [DllImport("user32.dll")]
-                public static extern bool SetCursorPos(int X, int Y);
-            }
-"@
-            [Mouse]::SetCursorPos(${x}, ${y})
+            ${EnsureMCPMouseScript}
+            [MCP_Mouse]::SetCursorPos(${x}, ${y})
         `;
-        await execAsync(`powershell -Command "${script.replace(/\n/g, ' ')}"`, { timeout: 5000 });
+        await PowerShellSession.getInstance().execute(script);
     } else if (platform === 'darwin') {
         await execAsync(`osascript -e 'tell application "System Events" to click at {${x}, ${y}}'`, { timeout: 5000 });
     } else {
@@ -169,43 +186,20 @@ async function moveMouse(x: number, y: number): Promise<void> {
 async function clickMouse(x?: number, y?: number, button: string = 'left', clicks: number = 1): Promise<void> {
     if (platform === 'win32') {
         const buttonCode = button === 'right' ? 2 : button === 'middle' ? 4 : 1;
-        let script = '';
+        let script = EnsureMCPMouseScript;
 
         if (x !== undefined && y !== undefined) {
-            script += `
-                Add-Type -TypeDefinition @"
-                using System;
-                using System.Runtime.InteropServices;
-                public class Mouse {
-                    [DllImport("user32.dll")]
-                    public static extern bool SetCursorPos(int X, int Y);
-                    [DllImport("user32.dll")]
-                    public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);
-                }
-"@
-                [Mouse]::SetCursorPos(${x}, ${y})
-            `;
-        } else {
-            script += `
-                Add-Type -TypeDefinition @"
-                using System;
-                using System.Runtime.InteropServices;
-                public class Mouse {
-                    [DllImport("user32.dll")]
-                    public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);
-                }
-"@
-            `;
+             script += `[MCP_Mouse]::SetCursorPos(${x}, ${y}); `;
         }
-
+        
         const downFlag = button === 'right' ? 8 : button === 'middle' ? 32 : 2;
         const upFlag = button === 'right' ? 16 : button === 'middle' ? 64 : 4;
 
         for (let i = 0; i < clicks; i++) {
-            script += `[Mouse]::mouse_event(${downFlag}, 0, 0, 0, 0); [Mouse]::mouse_event(${upFlag}, 0, 0, 0, 0); `;
+            script += `[MCP_Mouse]::mouse_event(${downFlag}, 0, 0, 0, 0); [MCP_Mouse]::mouse_event(${upFlag}, 0, 0, 0, 0); `;
         }
 
-        await execAsync(`powershell -Command "${script.replace(/\n/g, ' ')}"`, { timeout: 5000 });
+        await PowerShellSession.getInstance().execute(script);
     } else if (platform === 'darwin') {
         if (x !== undefined && y !== undefined) {
             await execAsync(`osascript -e 'tell application "System Events" to click at {${x}, ${y}}'`, { timeout: 5000 });
@@ -223,21 +217,12 @@ async function clickMouse(x?: number, y?: number, button: string = 'left', click
 async function getMousePosition(): Promise<{ x: number; y: number }> {
     if (platform === 'win32') {
         const script = `
-            Add-Type -TypeDefinition @"
-            using System;
-            using System.Runtime.InteropServices;
-            public class Mouse {
-                [StructLayout(LayoutKind.Sequential)]
-                public struct POINT { public int X; public int Y; }
-                [DllImport("user32.dll")]
-                public static extern bool GetCursorPos(out POINT lpPoint);
-            }
-"@
-            $point = New-Object Mouse+POINT
-            [Mouse]::GetCursorPos([ref]$point) | Out-Null
+            ${EnsureMCPMouseScript}
+            $point = New-Object MCP_Mouse+POINT
+            [MCP_Mouse]::GetCursorPos([ref]$point) | Out-Null
             Write-Output "$($point.X),$($point.Y)"
         `;
-        const { stdout } = await execAsync(`powershell -Command "${script.replace(/\n/g, ' ')}"`, { timeout: 5000 });
+        const stdout = await PowerShellSession.getInstance().execute(script);
         const [x, y] = stdout.trim().split(',').map(Number);
         return { x, y };
     } else if (platform === 'darwin') {
@@ -403,18 +388,12 @@ export async function handleMouseScroll(args: { x?: number; y?: number; deltaX?:
         }
 
         if (platform === 'win32') {
+            const scrollAmt = (args.deltaY || 0) * -120;
             const script = `
-                Add-Type -TypeDefinition @"
-                using System;
-                using System.Runtime.InteropServices;
-                public class Mouse {
-                    [DllImport("user32.dll")]
-                    public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);
-                }
-"@
-                [Mouse]::mouse_event(0x0800, 0, 0, ${args.deltaY * -120}, 0)
+                ${EnsureMCPMouseScript}
+                [MCP_Mouse]::mouse_event(0x0800, 0, 0, ${scrollAmt}, 0)
             `;
-            await execAsync(`powershell -Command "${script.replace(/\n/g, ' ')}"`, { timeout: 5000 });
+            await PowerShellSession.getInstance().execute(script);
         } else if (platform === 'darwin') {
             await execAsync(`osascript -e 'tell application "System Events" to scroll vertical by ${args.deltaY}'`, { timeout: 5000 });
         } else {
@@ -530,9 +509,12 @@ export async function handleBatchMouseActions(args: { actions: any[] }) {
                     break;
                 case 'scroll':
                     if (platform === 'win32') {
-                        const scrollAmt = (action.deltaY || 0) * -120;
-                        const scrollScript = `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class M { [DllImport("user32.dll")] public static extern void mouse_event(int f, int x, int y, int d, int e); }'; [M]::mouse_event(0x0800, 0, 0, ${scrollAmt}, 0)`;
-                        await execAsync(`powershell -Command "${scrollScript}"`, { timeout: 5000 });
+                         const scrollAmt = (action.deltaY || 0) * -120;
+                         const scrollScript = `
+                             ${EnsureMCPMouseScript}
+                             [MCP_Mouse]::mouse_event(0x0800, 0, 0, ${scrollAmt}, 0)
+                         `;
+                         await PowerShellSession.getInstance().execute(scrollScript);
                     } else if (platform !== 'darwin') {
                         const direction = (action.deltaY || 0) > 0 ? 5 : 4;
                         const times = Math.abs(action.deltaY || 1);
