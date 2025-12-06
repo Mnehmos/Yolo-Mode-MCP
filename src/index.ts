@@ -153,6 +153,9 @@ import {
     handleClearOldLogs, ClearOldLogsSchema
 } from './tools/analytics.js';
 
+// Execute Code in Memory
+import { handleExecuteCode, ExecuteCodeSchema } from './tools/executeCode.js';
+
 const server = new Server(
     {
         name: 'mcp-ooda-computer',
@@ -175,6 +178,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 name: 'exec_cli',
                 description: 'Execute shell commands on the host system (YOLO mode)',
                 inputSchema: toJsonSchema(ExecCliSchema, ['command']),
+            },
+            {
+                name: 'execute_code',
+                description: 'Execute code in memory without saving to file. Supports python, node, r, powershell, bash.',
+                inputSchema: toJsonSchema(ExecuteCodeSchema, ['language', 'code']),
             },
             {
                 name: 'read_file',
@@ -637,6 +645,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     switch (name) {
         // CLI & File operations
         case 'exec_cli': return handleExecCli(args as any) as any;
+        case 'execute_code': return handleExecuteCode(args as any) as any;
         case 'read_file': return handleReadFile(args as any) as any;
         case 'write_file': return handleWriteFile(args as any) as any;
         case 'list_directory': return handleListDirectory(args as any) as any;
