@@ -7,6 +7,38 @@ import { logAudit } from '../audit.js';
 
 const config = loadConfig();
 
+// Token estimation helper
+function estimateTokens(text: string | number): number {
+    if (typeof text === 'number') return Math.ceil(text / 4);
+    return Math.ceil(text.length / 4);
+}
+
+// Context budget calculator
+interface ContextBudget {
+    total: number;
+    used: number;
+    threshold: number;
+    available: number;
+}
+
+function calculateContextBudget(
+    contextWindow?: number,
+    contextUsed?: number,
+    contextThreshold?: number
+): ContextBudget | null {
+    if (!contextWindow || !contextUsed) return null;
+
+    const threshold = contextThreshold ?? 0.7;
+    const available = Math.floor((contextWindow - contextUsed) * threshold);
+
+    return {
+        total: contextWindow,
+        used: contextUsed,
+        threshold,
+        available
+    };
+}
+
 // Basic blocklist for safety even in YOLO mode
 const BLOCKLIST = [
     'rm -rf /',
@@ -97,6 +129,9 @@ export const BatchExecCliSchema = {
 
 export const BatchReadFilesSchema = {
     paths: z.array(z.string()).describe('Array of file paths to read in parallel'),
+    contextWindow: z.number().optional().describe('LLM total context window size'),
+    contextUsed: z.number().optional().describe('Tokens already used in conversation'),
+    contextThreshold: z.number().optional().describe('Safety threshold (default: 0.7 for 70%)'),
 };
 
 export const BatchWriteFilesSchema = {
@@ -108,6 +143,9 @@ export const BatchWriteFilesSchema = {
 
 export const BatchListDirectoriesSchema = {
     paths: z.array(z.string()).describe('Array of directory paths to list in parallel'),
+    contextWindow: z.number().optional().describe('LLM total context window size'),
+    contextUsed: z.number().optional().describe('Tokens already used in conversation'),
+    contextThreshold: z.number().optional().describe('Safety threshold (default: 0.7 for 70%)'),
 };
 
 // Read specific lines from a file (token-efficient alternative to reading entire file)
@@ -470,14 +508,66 @@ export async function handleBatchExecCli(args: { commands: Array<{ command: stri
     };
 }
 
-export async function handleBatchReadFiles(args: { paths: string[] }) {
+export async function handleBatchReadFiles(args: {
+    paths: string[];
+    contextWindow?: number;
+    contextUsed?: number;
+    contextThreshold?: number;
+}) {
     const startTime = Date.now();
+    const budget = calculateContextBudget(args.contextWindow, args.contextUsed, args.contextThreshold);
 
+    let cumulativeTokens = 0;
     const results = await Promise.all(
         args.paths.map(async (filePath, index): Promise<BatchResult> => {
             try {
+                const stats = fs.statSync(filePath);
+                const sizeBytes = stats.size;
+                const estimatedTokens = estimateTokens(sizeBytes);
+
+                // Context-aware decision
+                if (budget && (cumulativeTokens + estimatedTokens) > budget.available) {
+                    // Too large - return info only with suggestions
+                    let lines: number | null = null;
+                    try {
+                        if (sizeBytes < 10_000_000) { // Only count lines for files < 10MB
+                            const content = fs.readFileSync(filePath, 'utf-8');
+                            lines = content.split('\n').length;
+                        }
+                    } catch {
+                        // Binary file or encoding issue
+                    }
+
+                    return {
+                        index,
+                        success: true,
+                        result: {
+                            path: filePath,
+                            contentOmitted: true,
+                            reason: 'File too large for available context',
+                            sizeBytes,
+                            lines,
+                            estimatedTokens,
+                            suggestions: lines ? [
+                                `Use read_file_lines({ path: '${filePath}', startLine: 1, endLine: 100 }) for preview`,
+                                `Use read_file_lines({ path: '${filePath}', startLine: ${Math.max(1, lines - 100)}, endLine: ${lines} }) for recent content`,
+                                `Use search_in_file({ path: '${filePath}', pattern: 'YOUR_PATTERN' }) to find specific content`
+                            ] : [
+                                `File is too large (${Math.round(sizeBytes / 1024)}KB)`,
+                                `Consider using specialized tools for this file type`
+                            ]
+                        }
+                    };
+                }
+
+                // Fits in budget - return full content
                 const content = fs.readFileSync(filePath, 'utf-8');
-                return { index, success: true, result: { path: filePath, content } };
+                cumulativeTokens += estimatedTokens;
+                return {
+                    index,
+                    success: true,
+                    result: { path: filePath, content, estimatedTokens }
+                };
             } catch (error: any) {
                 return { index, success: false, error: `${filePath}: ${error.message}` };
             }
@@ -487,6 +577,7 @@ export async function handleBatchReadFiles(args: { paths: string[] }) {
     const successful = results.filter(r => r.success).length;
     const failed = results.filter(r => !r.success).length;
     const elapsed = Date.now() - startTime;
+    const hasOmitted = results.some(r => r.success && r.result?.contentOmitted);
 
     await logAudit('batch_read_files', { count: args.paths.length }, { successful, failed, elapsed });
 
@@ -494,7 +585,17 @@ export async function handleBatchReadFiles(args: { paths: string[] }) {
         content: [{
             type: 'text',
             text: JSON.stringify({
-                summary: { total: args.paths.length, successful, failed, elapsed_ms: elapsed },
+                summary: {
+                    total: args.paths.length,
+                    successful,
+                    failed,
+                    elapsed_ms: elapsed,
+                    ...(budget ? {
+                        contextBudget: budget.available,
+                        estimatedResponseTokens: cumulativeTokens,
+                        partial: hasOmitted
+                    } : {})
+                },
                 results: results.sort((a, b) => a.index - b.index)
             }, null, 2)
         }],
@@ -538,9 +639,16 @@ export async function handleBatchWriteFiles(args: { files: Array<{ path: string;
     };
 }
 
-export async function handleBatchListDirectories(args: { paths: string[] }) {
+export async function handleBatchListDirectories(args: {
+    paths: string[];
+    contextWindow?: number;
+    contextUsed?: number;
+    contextThreshold?: number;
+}) {
     const startTime = Date.now();
+    const budget = calculateContextBudget(args.contextWindow, args.contextUsed, args.contextThreshold);
 
+    let cumulativeTokens = 0;
     const results = await Promise.all(
         args.paths.map(async (dirPath, index): Promise<BatchResult> => {
             try {
@@ -549,7 +657,37 @@ export async function handleBatchListDirectories(args: { paths: string[] }) {
                     name: entry.name,
                     type: entry.isDirectory() ? 'directory' : 'file'
                 }));
-                return { index, success: true, result: { path: dirPath, entries: formatted } };
+
+                const entryCount = entries.length;
+                const estimatedTokens = estimateTokens(entryCount * 20); // ~20 chars per entry
+
+                // Context-aware decision
+                if (budget && (cumulativeTokens + estimatedTokens) > budget.available) {
+                    // Too large - return info only with suggestions
+                    return {
+                        index,
+                        success: true,
+                        result: {
+                            path: dirPath,
+                            contentOmitted: true,
+                            reason: 'Directory too large for available context',
+                            entryCount,
+                            estimatedTokens,
+                            suggestions: [
+                                `Use list_directory({ path: '${dirPath}' }) with grep to filter`,
+                                `Use search_files({ directory: '${dirPath}', pattern: '*.{ext}' }) for specific file types`
+                            ]
+                        }
+                    };
+                }
+
+                // Fits in budget - return full data
+                cumulativeTokens += estimatedTokens;
+                return {
+                    index,
+                    success: true,
+                    result: { path: dirPath, entries: formatted, estimatedTokens }
+                };
             } catch (error: any) {
                 return { index, success: false, error: `${dirPath}: ${error.message}` };
             }
@@ -559,6 +697,7 @@ export async function handleBatchListDirectories(args: { paths: string[] }) {
     const successful = results.filter(r => r.success).length;
     const failed = results.filter(r => !r.success).length;
     const elapsed = Date.now() - startTime;
+    const hasOmitted = results.some(r => r.success && r.result?.contentOmitted);
 
     await logAudit('batch_list_directories', { count: args.paths.length }, { successful, failed, elapsed });
 
@@ -566,7 +705,17 @@ export async function handleBatchListDirectories(args: { paths: string[] }) {
         content: [{
             type: 'text',
             text: JSON.stringify({
-                summary: { total: args.paths.length, successful, failed, elapsed_ms: elapsed },
+                summary: {
+                    total: args.paths.length,
+                    successful,
+                    failed,
+                    elapsed_ms: elapsed,
+                    ...(budget ? {
+                        contextBudget: budget.available,
+                        estimatedResponseTokens: cumulativeTokens,
+                        partial: hasOmitted
+                    } : {})
+                },
                 results: results.sort((a, b) => a.index - b.index)
             }, null, 2)
         }],

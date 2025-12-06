@@ -6,7 +6,9 @@
       "Bash(git checkout:*)",
       "Bash(npx tsc:*)",
       "Bash(npm install:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nfeat: Add context-aware adaptive responses to batch operations\n\nThis implements a \"nervous system\" approach where batch tools automatically\nadapt their responses based on available context budget.\n\nChanges:\n- Added estimateTokens() and calculateContextBudget() helper functions\n- Updated BatchListDirectoriesSchema to accept contextWindow/contextUsed/contextThreshold params\n- Updated BatchReadFilesSchema to accept context parameters\n- Modified handleBatchListDirectories to:\n  * Calculate available context budget\n  * Return full data when it fits\n  * Return info + suggestions when too large\n  * Support mixed responses (some full, some info)\n- Modified handleBatchReadFiles with same adaptive behavior\n- Updated tool descriptions to encourage context parameter usage\n\nBenefits:\n- Prevents context overflow automatically\n- LLMs can provide their context budget for smart responses\n- Tools suggest scoped alternatives (read_file_lines, search_in_file) when data is too large\n- Backwards compatible - works normally without context params\n- Returns transparency info (estimatedTokens, contextBudget, partial flag)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []

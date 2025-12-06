@@ -11,7 +11,6 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 // Helper to convert Zod schema objects to JSON Schema
 function toJsonSchema(schemaObj: Record<string, z.ZodTypeAny>, required?: string[]): Record<string, unknown> {
     const zodSchema = z.object(schemaObj);
-    // @ts-expect-error - zodToJsonSchema types are overly complex and cause TS2589
     const jsonSchema = zodToJsonSchema(zodSchema, { target: 'openApi3' }) as Record<string, unknown>;
     // Remove the $schema property if present as MCP doesn't need it
     if (jsonSchema && typeof jsonSchema === 'object') {
@@ -208,7 +207,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: 'batch_read_files',
-                description: 'Read multiple files in parallel.',
+                description: 'Read multiple files in parallel. Supports context-aware adaptive responses - provide contextWindow and contextUsed to automatically handle large files.',
                 inputSchema: toJsonSchema(BatchReadFilesSchema),
             },
             {
@@ -218,7 +217,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: 'batch_list_directories',
-                description: 'List multiple directories in parallel.',
+                description: 'List multiple directories in parallel. Supports context-aware adaptive responses - provide contextWindow and contextUsed to automatically handle large directories.',
                 inputSchema: toJsonSchema(BatchListDirectoriesSchema),
             },
             {
