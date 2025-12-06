@@ -113,8 +113,9 @@ export const BatchListDirectoriesSchema = {
 // Read specific lines from a file (token-efficient alternative to reading entire file)
 export const ReadFileLinesSchema = {
     path: z.string().describe('Path to the file to read'),
-    startLine: z.number().optional().describe('Starting line number (1-indexed, default: 1)'),
-    endLine: z.number().optional().describe('Ending line number (inclusive, default: end of file)'),
+    startLine: z.number().optional().describe('Starting line number (1-indexed, default: 1). Ignored if offset is specified.'),
+    endLine: z.number().optional().describe('Ending line number (inclusive, default: end of file). Ignored if offset is specified.'),
+    offset: z.number().optional().describe('Negative value reads last N lines from end of file (like Unix tail). Positive value reads first N lines. Takes precedence over startLine/endLine.'),
     includeLineNumbers: z.boolean().optional().describe('Include line numbers in output (default: true)'),
 };
 
@@ -174,16 +175,50 @@ export async function handleReadFileLines(args: {
     path: string;
     startLine?: number;
     endLine?: number;
+    offset?: number;
     includeLineNumbers?: boolean;
 }) {
     try {
         const content = fs.readFileSync(args.path, 'utf-8');
         const allLines = content.split('\n');
         const totalLines = allLines.length;
-
-        const startLine = Math.max(1, args.startLine ?? 1);
-        const endLine = Math.min(totalLines, args.endLine ?? totalLines);
         const includeLineNumbers = args.includeLineNumbers !== false; // default true
+
+        let startLine: number;
+        let endLine: number;
+
+        // If offset is specified, it takes precedence
+        if (args.offset !== undefined) {
+            if (args.offset < 0) {
+                // Negative offset: read last N lines (like tail)
+                const linesToRead = Math.abs(args.offset);
+                startLine = Math.max(1, totalLines - linesToRead + 1);
+                endLine = totalLines;
+            } else if (args.offset > 0) {
+                // Positive offset: read first N lines (like head)
+                startLine = 1;
+                endLine = Math.min(totalLines, args.offset);
+            } else {
+                // offset = 0, read nothing
+                return {
+                    content: [{
+                        type: 'text',
+                        text: JSON.stringify({
+                            path: args.path,
+                            totalLines,
+                            startLine: 0,
+                            endLine: 0,
+                            linesReturned: 0,
+                            content: ''
+                        }, null, 2)
+                    }],
+                };
+            }
+        } else {
+            // Use startLine/endLine parameters
+            startLine = Math.max(1, args.startLine ?? 1);
+            endLine = Math.min(totalLines, args.endLine ?? totalLines);
+        }
 
         if (startLine > totalLines) {
             return {
@@ -206,7 +241,7 @@ export async function handleReadFileLines(args: {
             output = selectedLines.join('\n');
         }
 
-        await logAudit('read_file_lines', { path: args.path, startLine, endLine }, `read ${selectedLines.length} lines`);
+        await logAudit('read_file_lines', { path: args.path, startLine, endLine, offset: args.offset }, `read ${selectedLines.length} lines`);
 
         return {
             content: [{
