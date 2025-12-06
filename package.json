@@ -40,6 +40,7 @@
     "homepage": "https://github.com/yourusername/mcp-ooda-computer#readme",
     "dependencies": {
         "@modelcontextprotocol/sdk": "^0.6.0",
+        "fastest-levenshtein": "^1.0.16",
         "sqlite": "^5.0.1",
         "sqlite3": "^5.1.6",
         "uuid": "^13.0.0",

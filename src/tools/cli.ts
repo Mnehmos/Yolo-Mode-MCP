@@ -128,6 +128,31 @@ export const SearchInFileSchema = {
     maxMatches: z.number().optional().describe('Maximum number of matches to return (default: 100)'),
 };
 
+// Batch str_replace schema - supports multiple replacements across multiple files
+export const BatchStrReplaceSchema = {
+    replacements: z.array(z.object({
+        path: z.string().describe('Path to the file to edit'),
+        oldText: z.string().describe('Text to replace'),
+        newText: z.string().optional().describe('Replacement text (empty to delete)'),
+        replaceAll: z.boolean().optional().describe('Replace all occurrences, not just first (default: false)'),
+    })).describe('Array of replacement operations to execute'),
+    stopOnError: z.boolean().optional().describe('Stop execution if any replacement fails (default: false)'),
+};
+
+// Batch search in files schema - supports fuzzy/approximate matching
+export const BatchSearchInFilesSchema = {
+    searches: z.array(z.object({
+        path: z.string().describe('Path to the file to search'),
+        pattern: z.string().describe('Text, regex, or fuzzy pattern to search for'),
+    })).describe('Array of file paths and patterns to search'),
+    isRegex: z.boolean().optional().describe('Treat patterns as regex (default: false)'),
+    isFuzzy: z.boolean().optional().describe('Use fuzzy/approximate matching (default: false)'),
+    fuzzyThreshold: z.number().optional().describe('Similarity threshold for fuzzy matching 0-1 (default: 0.7)'),
+    caseSensitive: z.boolean().optional().describe('Case sensitive search (default: true)'),
+    contextLines: z.number().optional().describe('Number of lines of context before and after matches (default: 0)'),
+    maxMatchesPerFile: z.number().optional().describe('Maximum matches per file (default: 50)'),
+};
+
 export async function handleReadFile(args: { path: string }) {
     try {
         const content = fs.readFileSync(args.path, 'utf-8');
@@ -568,6 +593,380 @@ export async function handleBatchListDirectories(args: { paths: string[] }) {
             text: JSON.stringify({
                 summary: { total: args.paths.length, successful, failed, elapsed_ms: elapsed },
                 results: results.sort((a, b) => a.index - b.index)
+            }, null, 2)
+        }],
+        isError: failed > 0 && successful === 0,
+    };
+}
+
+// Batch str_replace handler - supports multiple replacements with replaceAll option
+export async function handleBatchStrReplace(args: {
+    replacements: Array<{
+        path: string;
+        oldText: string;
+        newText?: string;
+        replaceAll?: boolean;
+    }>;
+    stopOnError?: boolean;
+}) {
+    const startTime = Date.now();
+    const stopOnError = args.stopOnError ?? false;
+    const results: BatchResult[] = [];
+
+    for (let index = 0; index < args.replacements.length; index++) {
+        const op = args.replacements[index];
+        const newStr = op.newText ?? '';
+        const replaceAll = op.replaceAll ?? false;
+
+        try {
+            // Check file exists
+            if (!fs.existsSync(op.path)) {
+                const result: BatchResult = { index, success: false, error: `File not found: ${op.path}` };
+                results.push(result);
+                if (stopOnError) break;
+                continue;
+            }
+
+            const content = fs.readFileSync(op.path, 'utf-8');
+
+            // Count occurrences
+            const occurrences = content.split(op.oldText).length - 1;
+
+            if (occurrences === 0) {
+                const result: BatchResult = {
+                    index,
+                    success: false,
+                    error: `String not found in ${op.path}: "${op.oldText.substring(0, 50)}${op.oldText.length > 50 ? '...' : ''}"`
+                };
+                results.push(result);
+                if (stopOnError) break;
+                continue;
+            }
+
+            // If not replaceAll and multiple occurrences, that's an error
+            if (!replaceAll && occurrences > 1) {
+                const result: BatchResult = {
+                    index,
+                    success: false,
+                    error: `String appears ${occurrences} times in ${op.path}. Use replaceAll: true to replace all, or add more context.`
+                };
+                results.push(result);
+                if (stopOnError) break;
+                continue;
+            }
+
+            // Perform replacement
+            let newContent: string;
+            if (replaceAll) {
+                newContent = content.split(op.oldText).join(newStr);
+            } else {
+                newContent = content.replace(op.oldText, newStr);
+            }
+
+            fs.writeFileSync(op.path, newContent, 'utf-8');
+
+            results.push({
+                index,
+                success: true,
+                result: {
+                    path: op.path,
+                    replacements: replaceAll ? occurrences : 1,
+                    oldTextLength: op.oldText.length,
+                    newTextLength: newStr.length
+                }
+            });
+
+        } catch (error: any) {
+            const result: BatchResult = { index, success: false, error: `${op.path}: ${error.message}` };
+            results.push(result);
+            if (stopOnError) break;
+        }
+    }
+
+    const successful = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+    const totalReplacements = results
+        .filter(r => r.success && r.result)
+        .reduce((sum, r) => sum + (r.result.replacements || 0), 0);
+    const elapsed = Date.now() - startTime;
+
+    await logAudit('batch_str_replace', { count: args.replacements.length }, { successful, failed, totalReplacements, elapsed });
+
+    return {
+        content: [{
+            type: 'text',
+            text: JSON.stringify({
+                summary: {
+                    total: args.replacements.length,
+                    successful,
+                    failed,
+                    totalReplacements,
+                    elapsed_ms: elapsed
+                },
+                results: results.sort((a, b) => a.index - b.index)
+            }, null, 2)
+        }],
+        isError: failed > 0 && successful === 0,
+    };
+}
+
+// Levenshtein distance for fuzzy matching
+function levenshteinDistance(s1: string, s2: string): number {
+    const m = s1.length;
+    const n = s2.length;
+    
+    if (m === 0) return n;
+    if (n === 0) return m;
+    
+    const dp: number[][] = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+    
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+            dp[i][j] = Math.min(
+                dp[i - 1][j] + 1,      // deletion
+                dp[i][j - 1] + 1,      // insertion
+                dp[i - 1][j - 1] + cost // substitution
+            );
+        }
+    }
+    
+    return dp[m][n];
+}
+
+// Calculate similarity ratio (0-1) based on Levenshtein distance
+function similarityRatio(s1: string, s2: string): number {
+    const maxLen = Math.max(s1.length, s2.length);
+    if (maxLen === 0) return 1;
+    const distance = levenshteinDistance(s1, s2);
+    return 1 - (distance / maxLen);
+}
+
+// Find fuzzy matches in a line
+function findFuzzyMatches(line: string, pattern: string, threshold: number, caseSensitive: boolean): Array<{ start: number; end: number; matched: string; similarity: number }> {
+    const matches: Array<{ start: number; end: number; matched: string; similarity: number }> = [];
+    const searchLine = caseSensitive ? line : line.toLowerCase();
+    const searchPattern = caseSensitive ? pattern : pattern.toLowerCase();
+    const patternLen = pattern.length;
+    
+    // Slide window across the line
+    for (let i = 0; i <= searchLine.length - patternLen; i++) {
+        const window = searchLine.substring(i, i + patternLen);
+        const similarity = similarityRatio(window, searchPattern);
+        
+        if (similarity >= threshold) {
+            matches.push({
+                start: i,
+                end: i + patternLen,
+                matched: line.substring(i, i + patternLen),
+                similarity
+            });
+            // Skip ahead to avoid overlapping matches
+            i += Math.floor(patternLen / 2);
+        }
+    }
+    
+    // Also check slightly longer/shorter windows for fuzzy matching
+    for (const lenDelta of [-2, -1, 1, 2]) {
+        const windowLen = patternLen + lenDelta;
+        if (windowLen < 2) continue;
+        
+        for (let i = 0; i <= searchLine.length - windowLen; i++) {
+            const window = searchLine.substring(i, i + windowLen);
+            const similarity = similarityRatio(window, searchPattern);
+            
+            if (similarity >= threshold) {
+                // Check if we already have a match at this position
+                const hasOverlap = matches.some(m => 
+                    (i >= m.start && i < m.end) || (i + windowLen > m.start && i + windowLen <= m.end)
+                );
+                
+                if (!hasOverlap) {
+                    matches.push({
+                        start: i,
+                        end: i + windowLen,
+                        matched: line.substring(i, i + windowLen),
+                        similarity
+                    });
+                }
+            }
+        }
+    }
+    
+    return matches.sort((a, b) => a.start - b.start);
+}
+
+// Batch search in files handler with fuzzy matching support
+export async function handleBatchSearchInFiles(args: {
+    searches: Array<{ path: string; pattern: string }>;
+    isRegex?: boolean;
+    isFuzzy?: boolean;
+    fuzzyThreshold?: number;
+    caseSensitive?: boolean;
+    contextLines?: number;
+    maxMatchesPerFile?: number;
+}) {
+    const startTime = Date.now();
+    const isRegex = args.isRegex ?? false;
+    const isFuzzy = args.isFuzzy ?? false;
+    const fuzzyThreshold = args.fuzzyThreshold ?? 0.7;
+    const caseSensitive = args.caseSensitive !== false;
+    const contextLines = args.contextLines ?? 0;
+    const maxMatchesPerFile = args.maxMatchesPerFile ?? 50;
+
+    interface FileSearchResult {
+        path: string;
+        pattern: string;
+        success: boolean;
+        error?: string;
+        totalLines?: number;
+        matchCount?: number;
+        matches?: Array<{
+            lineNumber: number;
+            line: string;
+            similarity?: number;
+            matchedText?: string;
+            context?: {
+                before: Array<{ lineNumber: number; line: string }>;
+                after: Array<{ lineNumber: number; line: string }>;
+            };
+        }>;
+    }
+
+    const results = await Promise.all(
+        args.searches.map(async (search): Promise<FileSearchResult> => {
+            try {
+                const content = fs.readFileSync(search.path, 'utf-8');
+                const lines = content.split('\n');
+                const totalLines = lines.length;
+                const matches: FileSearchResult['matches'] = [];
+
+                if (isFuzzy) {
+                    // Fuzzy matching mode
+                    for (let i = 0; i < lines.length && matches.length < maxMatchesPerFile; i++) {
+                        const fuzzyMatches = findFuzzyMatches(lines[i], search.pattern, fuzzyThreshold, caseSensitive);
+                        
+                        for (const fm of fuzzyMatches) {
+                            if (matches.length >= maxMatchesPerFile) break;
+                            
+                            const match: any = {
+                                lineNumber: i + 1,
+                                line: lines[i],
+                                similarity: Math.round(fm.similarity * 100) / 100,
+                                matchedText: fm.matched
+                            };
+
+                            if (contextLines > 0) {
+                                const before: Array<{ lineNumber: number; line: string }> = [];
+                                const after: Array<{ lineNumber: number; line: string }> = [];
+
+                                for (let b = Math.max(0, i - contextLines); b < i; b++) {
+                                    before.push({ lineNumber: b + 1, line: lines[b] });
+                                }
+                                for (let a = i + 1; a <= Math.min(lines.length - 1, i + contextLines); a++) {
+                                    after.push({ lineNumber: a + 1, line: lines[a] });
+                                }
+
+                                match.context = { before, after };
+                            }
+
+                            matches.push(match);
+                        }
+                    }
+                } else {
+                    // Regex or literal matching
+                    let regex: RegExp;
+                    try {
+                        if (isRegex) {
+                            regex = new RegExp(search.pattern, caseSensitive ? 'g' : 'gi');
+                        } else {
+                            const escaped = search.pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                            regex = new RegExp(escaped, caseSensitive ? 'g' : 'gi');
+                        }
+                    } catch (regexError: any) {
+                        return {
+                            path: search.path,
+                            pattern: search.pattern,
+                            success: false,
+                            error: `Invalid regex: ${regexError.message}`
+                        };
+                    }
+
+                    for (let i = 0; i < lines.length && matches.length < maxMatchesPerFile; i++) {
+                        if (regex.test(lines[i])) {
+                            const match: any = {
+                                lineNumber: i + 1,
+                                line: lines[i]
+                            };
+
+                            if (contextLines > 0) {
+                                const before: Array<{ lineNumber: number; line: string }> = [];
+                                const after: Array<{ lineNumber: number; line: string }> = [];
+
+                                for (let b = Math.max(0, i - contextLines); b < i; b++) {
+                                    before.push({ lineNumber: b + 1, line: lines[b] });
+                                }
+                                for (let a = i + 1; a <= Math.min(lines.length - 1, i + contextLines); a++) {
+                                    after.push({ lineNumber: a + 1, line: lines[a] });
+                                }
+
+                                match.context = { before, after };
+                            }
+
+                            matches.push(match);
+                        }
+                        regex.lastIndex = 0;
+                    }
+                }
+
+                return {
+                    path: search.path,
+                    pattern: search.pattern,
+                    success: true,
+                    totalLines,
+                    matchCount: matches.length,
+                    matches
+                };
+
+            } catch (error: any) {
+                return {
+                    path: search.path,
+                    pattern: search.pattern,
+                    success: false,
+                    error: error.message
+                };
+            }
+        })
+    );
+
+    const successful = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+    const totalMatches = results.reduce((sum, r) => sum + (r.matchCount || 0), 0);
+    const elapsed = Date.now() - startTime;
+
+    await logAudit('batch_search_in_files', {
+        count: args.searches.length,
+        isRegex,
+        isFuzzy,
+        fuzzyThreshold: isFuzzy ? fuzzyThreshold : undefined
+    }, { successful, failed, totalMatches, elapsed });
+
+    return {
+        content: [{
+            type: 'text',
+            text: JSON.stringify({
+                summary: {
+                    total: args.searches.length,
+                    successful,
+                    failed,
+                    totalMatches,
+                    searchMode: isFuzzy ? 'fuzzy' : (isRegex ? 'regex' : 'literal'),
+                    elapsed_ms: elapsed
+                },
+                results
             }, null, 2)
         }],
         isError: failed > 0 && successful === 0,

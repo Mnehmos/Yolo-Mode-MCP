@@ -11,7 +11,6 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 // Helper to convert Zod schema objects to JSON Schema
 function toJsonSchema(schemaObj: Record<string, z.ZodTypeAny>, required?: string[]): Record<string, unknown> {
     const zodSchema = z.object(schemaObj);
-    // @ts-expect-error - zodToJsonSchema types are overly complex and cause TS2589
     const jsonSchema = zodToJsonSchema(zodSchema, { target: 'openApi3' }) as Record<string, unknown>;
     // Remove the $schema property if present as MCP doesn't need it
     if (jsonSchema && typeof jsonSchema === 'object') {
@@ -36,7 +35,9 @@ import {
     handleBatchExecCli, BatchExecCliSchema,
     handleBatchReadFiles, BatchReadFilesSchema,
     handleBatchWriteFiles, BatchWriteFilesSchema,
-    handleBatchListDirectories, BatchListDirectoriesSchema
+    handleBatchListDirectories, BatchListDirectoriesSchema,
+    handleBatchStrReplace, BatchStrReplaceSchema,
+    handleBatchSearchInFiles, BatchSearchInFilesSchema
 } from './tools/cli.js';
 
 // CRUD Tools
@@ -120,6 +121,13 @@ import {
     handleWait, WaitSchema,
     handleNotify, NotifySchema
 } from './tools/system.js';
+
+// Diff Editing Tools
+import {
+    handleEditBlock, EditBlockSchema,
+    handleApplyDiff, ApplyDiffSchema,
+    handleGetDiffPreview, GetDiffPreviewSchema
+} from './tools/diff/index.js';
 
 const server = new Server(
     {
@@ -240,6 +248,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 name: 'batch_file_info',
                 description: 'Get info for multiple files in parallel.',
                 inputSchema: toJsonSchema(BatchFileInfoSchema),
+            },
+            {
+                name: 'batch_str_replace',
+                description: 'Replace strings across multiple files in parallel. Supports replaceAll option to replace multiple occurrences per file.',
+                inputSchema: toJsonSchema(BatchStrReplaceSchema),
+            },
+            {
+                name: 'batch_search_in_files',
+                description: 'Search for patterns across multiple files in parallel. Supports regex, literal, and fuzzy/approximate matching with configurable similarity threshold.',
+                inputSchema: toJsonSchema(BatchSearchInFilesSchema),
+            },
+
+            // ==========================================
+            // === Diff-Based Editing ===
+            // ==========================================
+            {
+                name: 'edit_block',
+                description: 'Search and replace text in a file with fuzzy matching fallback. Shows diff preview when exact match fails. Use expectedReplacements to control how many occurrences to replace. Use dryRun=true for preview only.',
+                inputSchema: toJsonSchema(EditBlockSchema, ['path', 'search', 'replace']),
+            },
+            {
+                name: 'apply_diff',
+                description: 'Apply multiple search/replace operations to a file in a single atomic operation. Validates all blocks before applying any changes. Use dryRun=true for preview. Use startLine hints for faster matching in large files.',
+                inputSchema: toJsonSchema(ApplyDiffSchema, ['path', 'diffs']),
+            },
+            {
+                name: 'get_diff_preview',
+                description: 'Generate a diff preview showing what changes would be made without applying them. Supports unified, inline (character-level), and side-by-side formats.',
+                inputSchema: toJsonSchema(GetDiffPreviewSchema, ['path', 'search', 'replace']),
             },
 
             // ==========================================
@@ -523,6 +560,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         case 'batch_move_files': return handleBatchMoveFiles(args as any) as any;
         case 'batch_delete_files': return handleBatchDeleteFiles(args as any) as any;
         case 'batch_file_info': return handleBatchFileInfo(args as any) as any;
+        case 'batch_str_replace': return handleBatchStrReplace(args as any) as any;
+        case 'batch_search_in_files': return handleBatchSearchInFiles(args as any) as any;
+
+        // Diff-based editing
+        case 'edit_block': return handleEditBlock(args as any) as any;
+        case 'apply_diff': return handleApplyDiff(args as any) as any;
+        case 'get_diff_preview': return handleGetDiffPreview(args as any) as any;
 
         // CRUD operations
         case 'crud_create': return handleCrudCreate(args as any) as any;
