@@ -138,6 +138,21 @@ import {
     handleTerminateProcess, TerminateProcessSchema
 } from './tools/sessions.js';
 
+// Configuration Management
+import {
+    handleGetConfig, GetConfigSchema,
+    handleSetConfigValue, SetConfigValueSchema,
+    handleResetConfig, ResetConfigSchema
+} from './tools/configTools.js';
+
+// Analytics and Usage Stats
+import {
+    handleGetUsageStats, GetUsageStatsSchema,
+    handleGetRecentToolCalls, GetRecentToolCallsSchema,
+    handleGetAuditLogStats, GetAuditLogStatsSchema,
+    handleClearOldLogs, ClearOldLogsSchema
+} from './tools/analytics.js';
+
 const server = new Server(
     {
         name: 'mcp-ooda-computer',
@@ -565,6 +580,49 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 description: 'Show a system notification.',
                 inputSchema: toJsonSchema(NotifySchema, ['title', 'message']),
             },
+
+            // ==========================================
+            // === Configuration Management ===
+            // ==========================================
+            {
+                name: 'get_config',
+                description: 'Get current MCP server configuration. Optionally specify a section (storage, cliPolicy, crud).',
+                inputSchema: toJsonSchema(GetConfigSchema),
+            },
+            {
+                name: 'set_config_value',
+                description: 'Set a configuration value using dot notation (e.g., "cliPolicy.timeoutMs", "crud.defaultLimit"). Changes persist to disk.',
+                inputSchema: toJsonSchema(SetConfigValueSchema, ['key', 'value']),
+            },
+            {
+                name: 'reset_config',
+                description: 'Reset configuration to defaults. Optionally specify a section to reset only that section.',
+                inputSchema: toJsonSchema(ResetConfigSchema),
+            },
+
+            // ==========================================
+            // === Analytics & Usage Stats ===
+            // ==========================================
+            {
+                name: 'get_usage_stats',
+                description: 'Get tool usage statistics including call counts, error rates, and hourly distribution.',
+                inputSchema: toJsonSchema(GetUsageStatsSchema),
+            },
+            {
+                name: 'get_recent_tool_calls',
+                description: 'Get recent tool call history from the audit log. Useful for debugging.',
+                inputSchema: toJsonSchema(GetRecentToolCallsSchema),
+            },
+            {
+                name: 'get_audit_log_stats',
+                description: 'Get audit log statistics including total entries and database size.',
+                inputSchema: toJsonSchema(GetAuditLogStatsSchema),
+            },
+            {
+                name: 'clear_old_logs',
+                description: 'Delete audit log entries older than specified days. Use dryRun=true to preview.',
+                inputSchema: toJsonSchema(ClearOldLogsSchema, ['olderThanDays']),
+            },
         ],
     };
 });
@@ -669,6 +727,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         case 'get_network_info': return handleGetNetworkInfo() as any;
         case 'wait': return handleWait(args as any) as any;
         case 'notify': return handleNotify(args as any) as any;
+
+        // Configuration Management
+        case 'get_config': return handleGetConfig(args as any) as any;
+        case 'set_config_value': return handleSetConfigValue(args as any) as any;
+        case 'reset_config': return handleResetConfig(args as any) as any;
+
+        // Analytics & Usage Stats
+        case 'get_usage_stats': return handleGetUsageStats(args as any) as any;
+        case 'get_recent_tool_calls': return handleGetRecentToolCalls(args as any) as any;
+        case 'get_audit_log_stats': return handleGetAuditLogStats() as any;
+        case 'clear_old_logs': return handleClearOldLogs(args as any) as any;
 
         default:
             throw new Error(`Unknown tool: ${name}`);
