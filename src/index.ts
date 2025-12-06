@@ -156,6 +156,14 @@ import {
 // Execute Code in Memory
 import { handleExecuteCode, ExecuteCodeSchema } from './tools/executeCode.js';
 
+// Paginated Search
+import {
+    handleStartSearch, StartSearchSchema,
+    handleGetSearchResults, GetSearchResultsSchema,
+    handleListSearches, ListSearchesSchema,
+    handleStopSearch, StopSearchSchema
+} from './tools/paginatedSearch.js';
+
 const server = new Server(
     {
         name: 'mcp-ooda-computer',
@@ -631,6 +639,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 description: 'Delete audit log entries older than specified days. Use dryRun=true to preview.',
                 inputSchema: toJsonSchema(ClearOldLogsSchema, ['olderThanDays']),
             },
+
+            // ==========================================
+            // === Paginated Search ===
+            // ==========================================
+            {
+                name: 'start_search',
+                description: 'Start a paginated file search. Returns searchId for retrieving results. Use for large directories.',
+                inputSchema: toJsonSchema(StartSearchSchema, ['directory', 'pattern']),
+            },
+            {
+                name: 'get_search_results',
+                description: 'Get paginated results from a search session. Automatically advances cursor for next call.',
+                inputSchema: toJsonSchema(GetSearchResultsSchema, ['searchId']),
+            },
+            {
+                name: 'list_active_searches',
+                description: 'List all active search sessions with their status.',
+                inputSchema: toJsonSchema(ListSearchesSchema),
+            },
+            {
+                name: 'stop_search',
+                description: 'Stop a search session and cleanup resources.',
+                inputSchema: toJsonSchema(StopSearchSchema, ['searchId']),
+            },
         ],
     };
 });
@@ -747,6 +779,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         case 'get_recent_tool_calls': return handleGetRecentToolCalls(args as any) as any;
         case 'get_audit_log_stats': return handleGetAuditLogStats() as any;
         case 'clear_old_logs': return handleClearOldLogs(args as any) as any;
+
+        // Paginated Search
+        case 'start_search': return handleStartSearch(args as any) as any;
+        case 'get_search_results': return handleGetSearchResults(args as any) as any;
+        case 'list_active_searches': return handleListSearches() as any;
+        case 'stop_search': return handleStopSearch(args as any) as any;
 
         default:
             throw new Error(`Unknown tool: ${name}`);
