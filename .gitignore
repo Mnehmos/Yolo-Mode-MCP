@@ -52,3 +52,4 @@ temp/
 
 # TypeScript
 *.tsbuildinfo
+rpg.db-shm

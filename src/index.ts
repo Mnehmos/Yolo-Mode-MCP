@@ -23,6 +23,11 @@ function toJsonSchema(schemaObj: Record<string, z.ZodTypeAny>, required?: string
     return jsonSchema;
 }
 
+// Search Tools
+import {
+    handleSearchTools, SearchToolsSchema
+} from './tools/search.js';
+
 // CLI Tools
 import {
     handleExecCli, ExecCliSchema,
@@ -136,6 +141,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
         tools: [
             // ==========================================
+            // === Tool Discovery ===
+            // ==========================================
+            {
+                name: 'search_tools',
+                description: 'Search for available tools by category, capability, or keyword. Use this to discover specialized tools for your task. Returns tool information including usage examples and context-awareness capabilities.',
+                inputSchema: toJsonSchema(SearchToolsSchema),
+            },
+
+            // ==========================================
             // === CLI & File Operations ===
             // ==========================================
             {
@@ -190,34 +204,34 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: 'read_file_lines',
-                description: 'Read specific lines from a file (token-efficient). Returns line range with optional line numbers. Use this instead of read_file when you only need a portion of a large file.',
+                description: 'Read specific lines from a file (token-efficient). Returns line range with optional line numbers. Use this instead of read_file when you only need a portion of a large file. Discoverable via search_tools for file operations.',
                 inputSchema: toJsonSchema(ReadFileLinesSchema, ['path']),
             },
             {
                 name: 'search_in_file',
-                description: 'Search for text or regex patterns within a file. Returns matching lines with optional context. More efficient than reading entire file when looking for specific content.',
+                description: 'Search for text or regex patterns within a file. Returns matching lines with optional context. More efficient than reading entire file when looking for specific content. Discoverable via search_tools for file operations.',
                 inputSchema: toJsonSchema(SearchInFileSchema, ['path', 'pattern']),
             },
 
             // Batch file operations
             {
                 name: 'batch_exec_cli',
-                description: 'Execute multiple shell commands in parallel.',
+                description: 'Execute multiple shell commands in parallel. Discoverable via search_tools for batch operations.',
                 inputSchema: toJsonSchema(BatchExecCliSchema),
             },
             {
                 name: 'batch_read_files',
-                description: 'Read multiple files in parallel. Supports context-aware adaptive responses - provide contextWindow and contextUsed to automatically handle large files.',
+                description: 'Read multiple files in parallel. Supports context-aware adaptive responses - provide contextWindow and contextUsed to automatically handle large files. Discoverable via search_tools for batch operations.',
                 inputSchema: toJsonSchema(BatchReadFilesSchema),
             },
             {
                 name: 'batch_write_files',
-                description: 'Write multiple files in parallel.',
+                description: 'Write multiple files in parallel. Discoverable via search_tools for batch operations.',
                 inputSchema: toJsonSchema(BatchWriteFilesSchema),
             },
             {
                 name: 'batch_list_directories',
-                description: 'List multiple directories in parallel. Supports context-aware adaptive responses - provide contextWindow and contextUsed to automatically handle large directories.',
+                description: 'List multiple directories in parallel. Supports context-aware adaptive responses - provide contextWindow and contextUsed to automatically handle large directories. Discoverable via search_tools for batch operations.',
                 inputSchema: toJsonSchema(BatchListDirectoriesSchema),
             },
             {
@@ -295,7 +309,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             // ==========================================
             {
                 name: 'screenshot',
-                description: 'Capture screenshot of screen or region. Returns base64 image or saves to file.',
+                description: 'Capture screenshot of screen or region. Returns base64 image or saves to file. Discoverable via search_tools for screen operations.',
                 inputSchema: toJsonSchema(ScreenshotSchema),
             },
             {
@@ -359,12 +373,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: 'batch_keyboard_actions',
-                description: 'Execute sequence of keyboard actions (type, press, shortcut, wait).',
+                description: 'Execute sequence of keyboard actions (type, press, shortcut, wait). Discoverable via search_tools for input automation.',
                 inputSchema: toJsonSchema(BatchKeyboardActionsSchema),
             },
             {
                 name: 'batch_mouse_actions',
-                description: 'Execute sequence of mouse actions (move, click, drag, scroll, wait).',
+                description: 'Execute sequence of mouse actions (move, click, drag, scroll, wait). Discoverable via search_tools for input automation.',
                 inputSchema: toJsonSchema(BatchMouseActionsSchema),
             },
 
@@ -501,6 +515,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     switch (name) {
+        // Tool Discovery
+        case 'search_tools': return handleSearchTools(args as any) as any;
+
         // CLI & File operations
         case 'exec_cli': return handleExecCli(args as any) as any;
         case 'read_file': return handleReadFile(args as any) as any;
