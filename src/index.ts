@@ -129,6 +129,15 @@ import {
     handleGetDiffPreview, GetDiffPreviewSchema
 } from './tools/diff/index.js';
 
+// Interactive Process Sessions
+import {
+    handleStartProcess, StartProcessSchema,
+    handleInteractWithProcess, InteractWithProcessSchema,
+    handleReadProcessOutput, ReadProcessOutputSchema,
+    handleListSessions, ListSessionsSchema,
+    handleTerminateProcess, TerminateProcessSchema
+} from './tools/sessions.js';
+
 const server = new Server(
     {
         name: 'mcp-ooda-computer',
@@ -277,6 +286,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 name: 'get_diff_preview',
                 description: 'Generate a diff preview showing what changes would be made without applying them. Supports unified, inline (character-level), and side-by-side formats.',
                 inputSchema: toJsonSchema(GetDiffPreviewSchema, ['path', 'search', 'replace']),
+            },
+
+            // ==========================================
+            // === Interactive Process Sessions ===
+            // ==========================================
+            {
+                name: 'start_process',
+                description: 'Start a new interactive process session. Returns a sessionId for subsequent interactions. Use for long-running processes, REPLs, SSH, or any process requiring stdin/stdout interaction.',
+                inputSchema: toJsonSchema(StartProcessSchema, ['command']),
+            },
+            {
+                name: 'interact_with_process',
+                description: 'Send input to a running process session. Input is written to the process stdin.',
+                inputSchema: toJsonSchema(InteractWithProcessSchema, ['sessionId', 'input']),
+            },
+            {
+                name: 'read_process_output',
+                description: 'Read output from a process session. Use negative lines value to read last N lines. Use clear=true to clear the buffer after reading.',
+                inputSchema: toJsonSchema(ReadProcessOutputSchema, ['sessionId']),
+            },
+            {
+                name: 'list_sessions',
+                description: 'List all active process sessions with their status and basic info.',
+                inputSchema: toJsonSchema(ListSessionsSchema),
+            },
+            {
+                name: 'terminate_process',
+                description: 'Terminate a process session. Use force=true for SIGKILL instead of graceful SIGTERM.',
+                inputSchema: toJsonSchema(TerminateProcessSchema, ['sessionId']),
             },
 
             // ==========================================
@@ -567,6 +605,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         case 'edit_block': return handleEditBlock(args as any) as any;
         case 'apply_diff': return handleApplyDiff(args as any) as any;
         case 'get_diff_preview': return handleGetDiffPreview(args as any) as any;
+
+        // Interactive process sessions
+        case 'start_process': return handleStartProcess(args as any) as any;
+        case 'interact_with_process': return handleInteractWithProcess(args as any) as any;
+        case 'read_process_output': return handleReadProcessOutput(args as any) as any;
+        case 'list_sessions': return handleListSessions() as any;
+        case 'terminate_process': return handleTerminateProcess(args as any) as any;
 
         // CRUD operations
         case 'crud_create': return handleCrudCreate(args as any) as any;
