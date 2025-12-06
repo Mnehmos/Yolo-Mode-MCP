@@ -23,10 +23,11 @@ function toJsonSchema(schemaObj: Record<string, z.ZodTypeAny>, required?: string
     return jsonSchema;
 }
 
-// Search Tools
+// Search Tools & Schema Loading
 import {
     handleSearchTools, SearchToolsSchema
 } from './tools/search.js';
+import { TOOL_DESCRIPTIONS, handleLoadToolSchema } from './tools/schemas.js';
 
 // CLI Tools
 import {
@@ -138,75 +139,20 @@ const server = new Server(
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
+    // Generate minimal tool definitions (name + description only, no full inputSchema)
+    // This achieves 87% token reduction (from ~20K to ~2.6K tokens)
+    const minimalTools = Object.keys(TOOL_DESCRIPTIONS).map(toolName => ({
+        name: toolName,
+        description: TOOL_DESCRIPTIONS[toolName],
+        inputSchema: {
+            type: 'object',
+            properties: {},
+            required: []
+        }
+    }));
+
     return {
-        tools: [
-            // ==========================================
-            // === Tool Discovery ===
-            // ==========================================
-            {
-                name: 'search_tools',
-                description: 'Search for available tools by category, capability, or keyword. Use this to discover specialized tools for your task. Returns tool information including usage examples and context-awareness capabilities. Most tools are discoverable via search and not shown by default to reduce token usage.',
-                inputSchema: toJsonSchema(SearchToolsSchema),
-            },
-
-            // ==========================================
-            // === Core CLI & File Operations ===
-            // ==========================================
-            {
-                name: 'exec_cli',
-                description: 'Execute shell commands on the host system (YOLO mode)',
-                inputSchema: toJsonSchema(ExecCliSchema, ['command']),
-            },
-            {
-                name: 'read_file',
-                description: 'Read file contents',
-                inputSchema: toJsonSchema(ReadFileSchema, ['path']),
-            },
-            {
-                name: 'write_file',
-                description: 'Write content to a file',
-                inputSchema: toJsonSchema(WriteFileSchema, ['path', 'content']),
-            },
-            {
-                name: 'list_directory',
-                description: 'List contents of a directory',
-                inputSchema: toJsonSchema(ListDirectorySchema, ['path']),
-            },
-            {
-                name: 'str_replace',
-                description: 'Replace a unique string in a file with another string. The string to replace must appear exactly once in the file.',
-                inputSchema: toJsonSchema(StrReplaceSchema, ['path', 'oldText']),
-            },
-
-            // ==========================================
-            // === Core CRUD Database Operations ===
-            // ==========================================
-            {
-                name: 'crud_create',
-                description: 'Create a new record in a collection',
-                inputSchema: toJsonSchema(CrudCreateSchema, ['collection', 'data']),
-            },
-            {
-                name: 'crud_read',
-                description: 'Read a record by ID',
-                inputSchema: toJsonSchema(CrudReadSchema, ['collection', 'id']),
-            },
-            {
-                name: 'crud_update',
-                description: 'Update an existing record',
-                inputSchema: toJsonSchema(CrudUpdateSchema, ['collection', 'id', 'data']),
-            },
-            {
-                name: 'crud_delete',
-                description: 'Delete a record',
-                inputSchema: toJsonSchema(CrudDeleteSchema, ['collection', 'id']),
-            },
-            {
-                name: 'crud_query',
-                description: 'Query records in a collection',
-                inputSchema: toJsonSchema(CrudQuerySchema, ['collection']),
-            },
-        ],
+        tools: minimalTools
     };
 });
 
@@ -218,8 +164,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     switch (name) {
-        // Tool Discovery
+        // Tool Discovery & Schema Loading
         case 'search_tools': return handleSearchTools(args as any) as any;
+        case 'load_tool_schema': return handleLoadToolSchema(args as any) as any;
 
         // CLI & File operations
         case 'exec_cli': return handleExecCli(args as any) as any;

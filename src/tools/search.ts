@@ -255,6 +255,7 @@ export const SearchToolsSchema = {
 interface SearchResult extends ToolMetadata {
     relevanceScore: number;
     usageExample?: string;
+    schemaLoadRequired: boolean; // NEW - indicates schema must be loaded before use
 }
 
 // Search algorithm
@@ -324,7 +325,8 @@ export function searchTools(args: {
         return {
             ...tool,
             relevanceScore: score,
-            usageExample: generateUsageExample(tool, contextWindow, contextUsed)
+            usageExample: generateUsageExample(tool, contextWindow, contextUsed),
+            schemaLoadRequired: true // All tools require schema loading in dynamic loader pattern
         };
     });
 
@@ -353,6 +355,13 @@ export function searchTools(args: {
     if (query.includes('read') || query.includes('file')) {
         suggestions.push(
             "For large files, use 'read_file_lines' to read specific ranges instead of entire file."
+        );
+    }
+
+    // Schema loading suggestion
+    if (results.length > 0) {
+        suggestions.push(
+            "Before using a tool for the first time, call load_tool_schema({ toolName: 'tool_name' }) to get its full parameter schema."
         );
     }
 
