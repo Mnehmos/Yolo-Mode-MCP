@@ -164,6 +164,19 @@ import {
     handleStopSearch, StopSearchSchema
 } from './tools/paginatedSearch.js';
 
+// Browser Automation
+import {
+    handleLaunchBrowser, LaunchBrowserSchema,
+    handleCloseBrowser, CloseBrowserSchema,
+    handleNavigatePage, NavigatePageSchema,
+    handleGetPageContent, GetPageContentSchema,
+    handleClickElement, ClickElementSchema,
+    handleTypeText, TypeTextSchema,
+    handleEvalJs, EvalJsSchema,
+    handleScreenshotPage, ScreenshotPageSchema,
+    handleGetConsoleLogs, GetConsoleLogsSchema
+} from './tools/browser/tools.js';
+
 const server = new Server(
     {
         name: 'mcp-ooda-computer',
@@ -663,6 +676,55 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 description: 'Stop a search session and cleanup resources.',
                 inputSchema: toJsonSchema(StopSearchSchema, ['searchId']),
             },
+
+            // ==========================================
+            // === Browser Automation ===
+            // ==========================================
+            {
+                name: 'launch_browser',
+                description: 'Launch a browser instance (Puppeteer or Playwright). Toggles headless mode.',
+                inputSchema: toJsonSchema(LaunchBrowserSchema),
+            },
+            {
+                name: 'close_browser',
+                description: 'Close the browser instance and cleanup.',
+                inputSchema: toJsonSchema(CloseBrowserSchema),
+            },
+            {
+                name: 'navigate_page',
+                description: 'Navigate to a URL and wait for load.',
+                inputSchema: toJsonSchema(NavigatePageSchema, ['url']),
+            },
+            {
+                name: 'get_page_content',
+                description: 'Get page content in HTML, text, or markdown format.',
+                inputSchema: toJsonSchema(GetPageContentSchema),
+            },
+            {
+                name: 'click_element',
+                description: 'Click an element identified by CSS/XPath selector.',
+                inputSchema: toJsonSchema(ClickElementSchema, ['selector']),
+            },
+            {
+                name: 'type_text',
+                description: 'Type text into an input field.',
+                inputSchema: toJsonSchema(TypeTextSchema, ['selector', 'text']),
+            },
+            {
+                name: 'evaluate_js',
+                description: 'Execute JavaScript code in the page context.',
+                inputSchema: toJsonSchema(EvalJsSchema, ['script']),
+            },
+            {
+                name: 'screenshot_page',
+                description: 'Capture a full-page screenshot (returns base64).',
+                inputSchema: toJsonSchema(ScreenshotPageSchema),
+            },
+            {
+                name: 'get_console_logs',
+                description: 'Retrieve captured console logs from the browser.',
+                inputSchema: toJsonSchema(GetConsoleLogsSchema),
+            },
         ],
     };
 });
@@ -785,6 +847,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         case 'get_search_results': return handleGetSearchResults(args as any) as any;
         case 'list_active_searches': return handleListSearches() as any;
         case 'stop_search': return handleStopSearch(args as any) as any;
+
+        // Browser Automation
+        case 'launch_browser': return handleLaunchBrowser(args as any) as any;
+        case 'close_browser': return handleCloseBrowser() as any;
+        case 'navigate_page': return handleNavigatePage(args as any) as any;
+        case 'get_page_content': return handleGetPageContent(args as any) as any;
+        case 'click_element': return handleClickElement(args as any) as any;
+        case 'type_text': return handleTypeText(args as any) as any;
+        case 'evaluate_js': return handleEvalJs(args as any) as any;
+        case 'screenshot_page': return handleScreenshotPage() as any;
+        case 'get_console_logs': return handleGetConsoleLogs() as any;
 
         default:
             throw new Error(`Unknown tool: ${name}`);

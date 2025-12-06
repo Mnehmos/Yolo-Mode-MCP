@@ -41,6 +41,8 @@
     "dependencies": {
         "@modelcontextprotocol/sdk": "^0.6.0",
         "fastest-levenshtein": "^1.0.16",
+        "playwright": "^1.57.0",
+        "puppeteer": "^24.32.0",
         "sqlite": "^5.0.1",
         "sqlite3": "^5.1.6",
         "uuid": "^13.0.0",
@@ -49,6 +51,7 @@
     },
     "devDependencies": {
         "@types/node": "^20.0.0",
+        "@types/puppeteer": "^5.4.7",
         "@types/sqlite3": "^3.1.8",
         "@types/uuid": "^10.0.0",
         "typescript": "^5.0.0"
